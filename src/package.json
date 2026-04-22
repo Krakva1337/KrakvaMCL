@@ -1,0 +1,53 @@
+{
+  "name": "krakvamcl-launcher",
+  "version": "0.1.0",
+  "private": true,
+  "description": "KrakvaMCL desktop launcher",
+  "main": "electron-main.js",
+  "scripts": {
+    "start": "node launch-electron.js",
+    "dist": "electron-builder"
+  },
+  "dependencies": {
+    "extract-zip": "^2.0.1"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0",
+    "electron-builder": "^26.8.1"
+  },
+  "build": {
+  "appId": "ru.krakvamcl.launcher",
+  "productName": "KrakvaMCL",
+  "files": [
+    "electron-main.js",
+    "launch-electron.js",
+    "main.js",
+    "main.html",
+    "splash.html",
+    "splash.js",
+    "styles.css",
+    "preload.js",
+    "settings.json",
+    "assets/**/*",
+    "node_modules/**/*",
+    "package.json"
+  ],
+  "directories": {
+    "output": "dist",
+    "buildResources": "build"
+  },
+  "win": {
+    "target": "nsis",
+    "icon": "build/icon.ico"
+  },
+  "mac": {
+    "target": ["dmg", "zip"],
+    "icon": "build/icon.icns",
+    "category": "public.app-category.games"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true
+  }
+}
+}
