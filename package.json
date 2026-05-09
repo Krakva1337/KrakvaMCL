@@ -1,0 +1,56 @@
+{
+  "name": "krakvamcl-launcher",
+  "version": "0.1.0",
+  "private": true,
+  "description": "KrakvaMCL desktop launcher",
+  "main": "electron-main.js",
+  "author": "KrakvaMCL",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist-win": "electron-builder --win",
+    "portable": "electron-packager . KrakvaMCL --platform=win32 --arch=x64 --out=portable --icon=build/icon.ico --overwrite"
+  },
+  "dependencies": {
+    "extract-zip": "^2.0.1"
+  },
+  "devDependencies": {
+    "electron": "^32.3.3",
+    "electron-builder": "^26.8.1",
+    "electron-packager": "^17.1.2"
+  },
+  "build": {
+    "appId": "ru.krakvamcl.launcher",
+    "productName": "KrakvaMCL",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron-main.js",
+      "main.js",
+      "main.html",
+      "splash.html",
+      "splash.js",
+      "styles.css",
+      "preload.js",
+      "settings.json",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "KrakvaMCL",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "license": "license.txt",
+      "perMachine": true,
+      "displayLanguageSelector": true
+    }
+  }
+}

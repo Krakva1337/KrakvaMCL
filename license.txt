@@ -1,0 +1,5 @@
+MIT License
+
+Copyright (c) 2026 Krakva1337
+
+Permission is hereby granted...

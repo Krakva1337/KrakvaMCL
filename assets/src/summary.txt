@@ -1,0 +1,2 @@
+Summary for KrakvaAgent-runtime.jar
+Decompiled with CFR 0.152
