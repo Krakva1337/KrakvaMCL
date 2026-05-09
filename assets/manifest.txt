@@ -1,7 +1,0 @@
-Manifest-Version: 1.0
-Main-Class: ru.krakva.Main
-Premain-Class: ru.krakva.Main
-Agent-Class: ru.krakva.Main
-Can-Redefine-Classes: true
-Can-Retransform-Classes: true
-
