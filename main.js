@@ -646,6 +646,7 @@ function bindSystemInfoEvents() {
 }
 
 async function initialize() {
+    subscribeToGameStatus();
     // Try to use pre-loaded data from splash screen first
     const preloadedData = window.__krakvamclPreloadedData || {};
     let settings, systemInfo, buildsState, filters, buildOptions, installedState, gameState, preloadedAccounts;
@@ -677,7 +678,26 @@ async function initialize() {
     state.settings = { ...state.settings, ...settings };
     state.systemInfo = { ...state.systemInfo, ...systemInfo };
     state.updateInfo.currentVersion = systemInfo?.launcherVersion || state.updateInfo.currentVersion;
-    state.builds = Array.isArray(buildsState?.builds) ? buildsState.builds : [];
+    
+
+    state.builds = Array.isArray(buildsState?.builds)
+    ? buildsState.builds
+    : [];
+
+    const preferredBuildId =
+        buildsState?.activeBuildId ||
+        state.settings.activeBuildId ||
+        DEFAULT_BUILD_ID;
+
+    const existingBuild = state.builds.find(b => b.id === preferredBuildId);
+
+    state.activeBuildId = existingBuild
+        ? existingBuild.id
+        : state.builds[0]?.id || DEFAULT_BUILD_ID;
+
+    state.settings.activeBuildId = state.activeBuildId;
+
+
     state.activeBuildId = buildsState?.activeBuildId || state.settings.activeBuildId || DEFAULT_BUILD_ID;
     state.modFilters = Array.isArray(filters) ? filters : [];
     state.buildOptions = {
@@ -727,7 +747,6 @@ async function initialize() {
     updateLaunchUi();
     updateNavIndicator();
     setSaveState('saved');
-    subscribeToGameStatus();
 
     if (state.settings.githubToken) {
         checkForUpdates(true)
@@ -849,6 +868,7 @@ function updateUpdateUi() {
     }
 }
 
+
 function bindStaticEvents() {
     window.activateNavTab = (button) => {
         const view = button?.dataset?.view;
@@ -925,6 +945,7 @@ function bindStaticEvents() {
     });
 
     refs.playLaunchBtn?.addEventListener('click', () => {
+        
         openLaunchModal();
         const activeAccount = getActiveAccount();
         window.launcherGame.launch({
@@ -945,10 +966,12 @@ function bindStaticEvents() {
     const openSidebar = () => refs.sidebar?.classList.add('sidebar-hovered');
     const closeSidebar = () => refs.sidebar?.classList.remove('sidebar-hovered');
 
-    // Sidebar hover - expand when hovering over the sidebar area
-    refs.sidebar?.addEventListener('mouseenter', openSidebar);
-    refs.sidebar?.addEventListener('mouseleave', closeSidebar);
-
+    // Sidebar hover - expand when hovering over sidebar area or nav items
+    [refs.sidebar, refs.sidebarNav, refs.sidebarSpacer, refs.accountCard, ...refs.navItems].forEach((element) => {
+        element?.addEventListener('mouseenter', openSidebar);
+        element?.addEventListener('mouseleave', closeSidebar);
+    });
+    
     refs.playPickerClose?.addEventListener('click', closePlayPicker);
     refs.playPickerOverlay?.addEventListener('click', (event) => {
         if (event.target === refs.playPickerOverlay) {
@@ -971,13 +994,24 @@ function bindStaticEvents() {
     });
 
     refs.modsTypeGrid?.querySelectorAll('[data-type]').forEach((button) => {
-        button.addEventListener('click', () => {
+        button.addEventListener('click', async () => {
             const newType = button.getAttribute('data-type');
             if (newType && newType !== state.modsType) {
                 state.modsType = newType;
                 state.modsCurrentPage = 1;
-                refs.modsTypeLabel.textContent = t(`mods_type_${newType}`);
+                state.modsCategory = 'all';
+                if (refs.modsTypeLabel) refs.modsTypeLabel.textContent = t(`mods_type_${newType}`);
                 refs.modsTypeModalOverlay.hidden = true;
+
+                // Перезагружаем фильтры для нового типа
+                try {
+                    const filters = await window.launcherMods.getFilters({ contentType: newType });
+                    state.modFilters = Array.isArray(filters) ? filters : [];
+                    renderModFilters();
+                } catch (e) {
+                    console.warn('Failed to load filters for type', newType, e);
+                }
+
                 renderModsResults();
                 performModsSearch().catch((error) => {
                     console.error(error);
@@ -1840,17 +1874,22 @@ function getActiveBuild() {
 }
 
 function getBuildDisplayName(build) {
-    if (build.isDefault && build.id === DEFAULT_BUILD_ID) {
-        return t('default_build_name');
-    }
-
-    return build.name || build.id;
+    if (!build) return t('default_build_name');
+    // Если есть явное имя — показываем его
+    const name = String(build.name || '').trim();
+    if (name && name !== 'Standart' && name !== 'Standard') return name;
+    // Для дефолтной сборки без кастомного имени
+    if (build.isDefault || build.id === DEFAULT_BUILD_ID) return t('default_build_name');
+    return build.id;
 }
 
 function updateToolbarTitle() {
     const activeBuild = getActiveBuild();
     const currentTab = t(`nav_${String(state.activeView || '').replace(/-/g, '_')}`);
-    const title = `${t('title_app')} - ${currentTab} | ${getBuildDisplayName(activeBuild)} | ${formatLoader(activeBuild.loader)} ${activeBuild.minecraftVersion}`;
+    const loaderStr = formatLoader(activeBuild.loader);
+    const versionStr = activeBuild.minecraftVersion || DEFAULT_GAME_VERSION;
+    const buildStr = getBuildDisplayName(activeBuild);
+    const title = `${t('title_app')} - ${currentTab} | ${buildStr} | ${loaderStr} ${versionStr}`;
 
     refs.toolbarTitle?.classList.add('switching');
     refs.titleText.textContent = title;
@@ -1910,22 +1949,40 @@ function formatBytesCompact(bytes) {
 }
 
 function subscribeToGameStatus() {
-    if (!window.launcherGame?.onStatus) {
-        return;
-    }
+    if (!window.launcherGame?.onStatus) return;
 
     if (subscribeToGameStatus.cleanup) {
         subscribeToGameStatus.cleanup();
     }
 
-    subscribeToGameStatus.cleanup = window.launcherGame.onStatus((payload) => {
+    subscribeToGameStatus.cleanup = window.launcherGame.onStatus((payload = {}) => {
         state.launchStatus = {
             ...state.launchStatus,
-            title: payload.title || state.launchStatus.title,
-            detail: payload.detail || state.launchStatus.detail,
-            progress: typeof payload.progress === 'number' ? payload.progress : state.launchStatus.progress,
-            speedBytes: typeof payload.speedBytes === 'number' ? payload.speedBytes : state.launchStatus.speedBytes,
-            command: payload.command || state.launchStatus.command
+
+            title:
+                payload.title !== undefined
+                    ? payload.title
+                    : state.launchStatus.title,
+
+            detail:
+                payload.detail !== undefined
+                    ? payload.detail
+                    : state.launchStatus.detail,
+
+            progress:
+                typeof payload.progress === 'number'
+                    ? payload.progress
+                    : state.launchStatus.progress,
+
+            speedBytes:
+                typeof payload.speedBytes === 'number'
+                    ? payload.speedBytes
+                    : state.launchStatus.speedBytes,
+
+            command:
+                payload.command !== undefined
+                    ? payload.command
+                    : state.launchStatus.command
         };
 
         if (payload.reportPath) {
@@ -1937,15 +1994,41 @@ function subscribeToGameStatus() {
 }
 
 function updateLaunchUi() {
-    refs.launchStatusText.textContent = state.launchStatus.detail || t('launch_status_idle');
-    refs.launchProgressTitle.textContent = state.launchStatus.title || t('launch_progress_title');
-    refs.launchProgressPercent.textContent = `${Math.max(0, Math.min(100, Math.round(state.launchStatus.progress || 0)))}%`;
-    refs.launchProgressFill.style.width = `${Math.max(0, Math.min(100, Math.round(state.launchStatus.progress || 0)))}%`;
-    refs.launchProgressDetail.textContent = state.launchStatus.detail || t('launch_status_idle');
-    refs.launchProgressSpeed.textContent = formatSpeed(state.launchStatus.speedBytes || 0);
-    refs.launchCommandOutput.textContent = state.launchStatus.command || 'Пока пусто';
-    refs.launchCommandOutput.title = state.launchStatus.command || 'Пока пусто';
-    refs.launchReportOpenBtn.disabled = !state.lastCrashReportPath;
+    const pct = Math.max(0, Math.min(100, Math.round(state.launchStatus.progress || 0)));
+    const detail = state.launchStatus.detail || t('launch_status_idle');
+    const title = state.launchStatus.title || t('launch_progress_title');
+
+    // Modal
+    if (refs.launchProgressTitle) refs.launchProgressTitle.textContent = title;
+    if (refs.launchProgressPercent) refs.launchProgressPercent.textContent = `${pct}%`;
+    if (refs.launchProgressFill) refs.launchProgressFill.style.width = `${pct}%`;
+    if (refs.launchProgressDetail) refs.launchProgressDetail.textContent = detail;
+    if (refs.launchProgressSpeed) refs.launchProgressSpeed.textContent = formatSpeed(state.launchStatus.speedBytes || 0);
+    if (refs.launchCommandOutput) {
+        refs.launchCommandOutput.textContent = state.launchStatus.command || 'Пока пусто';
+        refs.launchCommandOutput.title = state.launchStatus.command || 'Пока пусто';
+    }
+    if (refs.launchReportOpenBtn) refs.launchReportOpenBtn.disabled = !state.lastCrashReportPath;
+
+    // Inline status bar on play panel
+    if (refs.launchStatusLabel) refs.launchStatusLabel.textContent = title;
+    if (refs.launchStatusText) refs.launchStatusText.textContent = detail;
+
+    // Inline progress bar — ищем или создаём
+    const inlineBar = document.getElementById('launch-status-inline');
+    if (inlineBar) {
+        let progressEl = inlineBar.querySelector('.launch-status-progress');
+        if (!progressEl) {
+            progressEl = document.createElement('div');
+            progressEl.className = 'launch-status-progress';
+            progressEl.innerHTML = '<div class="launch-status-progress-fill"></div>';
+            inlineBar.appendChild(progressEl);
+        }
+        const fill = progressEl.querySelector('.launch-status-progress-fill');
+        if (fill) fill.style.width = `${pct}%`;
+        // Скрываем прогресс если 0% и нет активного действия
+        progressEl.style.display = (pct > 0 || state.launchStatus.speedBytes > 0) ? 'block' : 'none';
+    }
 }
 
 function openLaunchModal() {
@@ -2194,7 +2277,9 @@ async function refreshInstalledMods() {
         updateInstalledModsStatus(`${getBuildDisplayName(activeBuild)} • ${state.installedMods.length}`);
     }
 
-    const installedState = await window.launcherMods.listInstalled();
+const installedState = await window.launcherMods.listInstalled(
+    state.activeBuildId
+);
     state.installedMods = Array.isArray(installedState?.mods) ? installedState.mods : [];
     cacheInstalledModsForBuild(activeBuild?.id, state.installedMods);
     const totalPages = Math.max(1, Math.ceil(state.installedMods.length / INSTALLED_MODS_PAGE_SIZE));
@@ -2204,7 +2289,9 @@ async function refreshInstalledMods() {
 }
 
 async function toggleInstalledMod(filename) {
-    const installedState = await window.launcherMods.toggleInstalled({ filename });
+    const installedState = await window.launcherMods.listInstalled(
+    state.activeBuildId
+);
     state.installedMods = Array.isArray(installedState?.mods) ? installedState.mods : [];
     renderInstalledMods();
     renderModsResults();
@@ -2227,6 +2314,7 @@ async function performModsSearch(retryCount = 0) {
     }
 
     const activeBuild = getActiveBuild();
+    const contentType = state.modsType || 'mods';
 
     state.isSearchingMods = true;
     updateModsStatus(`${t('mods_search_loading')} ${formatLoader(activeBuild.loader)} ${activeBuild.minecraftVersion}`);
@@ -2238,20 +2326,20 @@ async function performModsSearch(retryCount = 0) {
             gameVersion: activeBuild.minecraftVersion,
             loader: activeBuild.loader,
             page: state.modsCurrentPage,
-            limit: MODS_PAGE_SIZE
+            limit: MODS_PAGE_SIZE,
+            contentType
         });
 
         state.modsResults = Array.isArray(results?.items) ? results.items : [];
         state.modsTotalCount = Number(results?.total || 0);
         
-        // If no results on first empty search, retry once after a brief delay
-        if ((state.modsResults.length === 0 && state.modsTotalCount === 0 && !state.modsQuery && retryCount === 0)) {
+        if (state.modsResults.length === 0 && state.modsTotalCount === 0 && !state.modsQuery && retryCount === 0) {
             state.isSearchingMods = false;
             await new Promise(resolve => setTimeout(resolve, 300));
             return performModsSearch(1);
         }
         
-        cacheModsForBuild(activeBuild.id, state.modsQuery, state.modsCurrentPage, state.modsResults, state.modsTotalCount);
+        cacheModsForBuild(`${activeBuild.id}_${contentType}`, state.modsQuery, state.modsCurrentPage, state.modsResults, state.modsTotalCount);
         renderModsResults();
         updateModsStatus(state.modsTotalCount ? `${state.modsTotalCount} • ${formatLoader(activeBuild.loader)} ${activeBuild.minecraftVersion}` : t('mods_search_empty'));
     } catch (error) {
@@ -2281,7 +2369,9 @@ function renderModsResults() {
     }
 
     refs.modsResults.innerHTML = state.modsResults.map((mod) => {
-        const installedMatch = getInstalledModMatch(mod);
+        const contentType = state.modsType || 'mods';
+        const isMods = contentType === 'mods';
+        const installedMatch = isMods ? getInstalledModMatch(mod) : null;
         const cover = mod.iconUrl
             ? `<img class="mods-result-cover" src="${escapeHtml(mod.iconUrl)}" alt="${escapeHtml(mod.title)}">`
             : `<div class="mods-result-cover mods-result-cover--fallback">${escapeHtml((mod.title || '?').charAt(0).toUpperCase())}</div>`;
@@ -2330,6 +2420,8 @@ function renderModsResults() {
         button.addEventListener('click', async () => {
             const modId = button.getAttribute('data-install-mod');
             const activeBuild = getActiveBuild();
+            const contentType = state.modsType || 'mods';
+            const modEntry = state.modsResults.find((entry) => entry.id === modId);
 
             button.disabled = true;
             button.textContent = t('mods_installing');
@@ -2339,11 +2431,14 @@ function renderModsResults() {
                     modId,
                     gameVersion: activeBuild.minecraftVersion,
                     loader: activeBuild.loader,
-                    title: modId ? state.modsResults.find((entry) => entry.id === modId)?.title || '' : '',
-                    author: modId ? state.modsResults.find((entry) => entry.id === modId)?.author || '' : ''
+                    title: modEntry?.title || '',
+                    author: modEntry?.author || '',
+                    contentType
                 });
 
-                state.installedMods = Array.isArray(result?.installedMods?.mods) ? result.installedMods.mods : state.installedMods;
+                if (contentType === 'mods') {
+                    state.installedMods = Array.isArray(result?.installedMods?.mods) ? result.installedMods.mods : state.installedMods;
+                }
 
                 button.textContent = t('mods_installed');
                 button.classList.add('mods-result-badge--success');

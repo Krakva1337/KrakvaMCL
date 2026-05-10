@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('launcherWindow', {
         ipcRenderer.send('window:close');
     },
     onTransition(callback) {
+        ipcRenderer.removeAllListeners('launcher:transition');
         const listener = (_event, payload) => callback(payload);
         ipcRenderer.on('launcher:transition', listener);
         return () => ipcRenderer.removeListener('launcher:transition', listener);
@@ -29,6 +30,7 @@ contextBridge.exposeInMainWorld('launcherSettings', {
         return ipcRenderer.invoke('java:select');
     },
     onJavaOptionsUpdated(callback) {
+        ipcRenderer.removeAllListeners('system:java-options-updated');
         const listener = (_event, payload) => callback(payload);
         ipcRenderer.on('system:java-options-updated', listener);
         return () => ipcRenderer.removeListener('system:java-options-updated', listener);
@@ -111,8 +113,20 @@ contextBridge.exposeInMainWorld('launcherGame', {
     getState() {
         return ipcRenderer.invoke('game:state');
     },
+    getStatus() {
+        return ipcRenderer.invoke('game:get-status');
+    },
     onStatus(callback) {
-        const listener = (_event, payload) => callback(payload);
+        // Удаляем все старые listeners перед регистрацией нового —
+        // защита от накопления дубликатов при hot-reload или повторных вызовах
+        ipcRenderer.removeAllListeners('game:status');
+        const listener = (_event, payload) => {
+            try {
+                callback(payload);
+            } catch (err) {
+                console.error('[preload] game:status callback error:', err);
+            }
+        };
         ipcRenderer.on('game:status', listener);
         return () => ipcRenderer.removeListener('game:status', listener);
     }

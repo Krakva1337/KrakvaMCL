@@ -380,7 +380,8 @@ body.dark-menus {
     transition: left 0.34s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.sidebar:hover ~ .content-area {
+.sidebar:hover ~ .content-area,
+.sidebar[data-expanded] ~ .content-area {
     left: calc(var(--sidebar-expanded) + 17px);
 }
 
@@ -786,7 +787,7 @@ body.launcher-minimizing .toolbar {
 }
 
 .sidebar:hover,
-.sidebar.sidebar-hovered {
+.sidebar[data-expanded] {
     width: var(--sidebar-expanded);
     background: rgba(255, 255, 255, 0.025);
     border-color: rgba(255, 255, 255, 0.34);
@@ -864,7 +865,7 @@ body.launcher-minimizing .toolbar {
 }
 
 .sidebar:hover .nav-item,
-.sidebar.sidebar-hovered .nav-item,
+.sidebar[data-expanded] .nav-item,
 .nav-item:hover,
 .sidebar-nav:hover .nav-item {
     width: 100%;
@@ -922,7 +923,7 @@ body.launcher-minimizing .toolbar {
 }
 
 .sidebar:hover .nav-label,
-.sidebar.sidebar-hovered .nav-label,
+.sidebar[data-expanded] .nav-label,
 .nav-item:hover .nav-label,
 .sidebar-nav:hover .nav-label {
     max-width: 92px;
@@ -964,7 +965,7 @@ body.launcher-minimizing .toolbar {
 }
 
 .sidebar:hover .account-card,
-.sidebar.sidebar-hovered .account-card {
+.sidebar[data-expanded] .account-card {
     width: calc(100% - 4px);
     padding: 8px 10px;
     justify-content: flex-start;
@@ -1016,7 +1017,7 @@ body.launcher-minimizing .toolbar {
 }
 
 .sidebar:hover .account-meta,
-.sidebar.sidebar-hovered .account-meta {
+.sidebar[data-expanded] .account-meta {
     max-width: 92px;
     opacity: 1;
     transform: translateX(0);
@@ -1091,7 +1092,8 @@ body.launcher-minimizing .toolbar {
     /* Псевдоэлемент для блюра краёв */
 }
 
-.sidebar:hover + .toolbar {
+.sidebar:hover + .toolbar,
+.sidebar[data-expanded] + .toolbar {
     left: calc(var(--sidebar-expanded) + 17px);
 }
 
@@ -2003,26 +2005,55 @@ body.launcher-minimizing .toolbar {
 }
 
 .launch-status-inline {
-    display: none;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     padding: 9px 11px;
     border-radius: 14px;
     background: rgba(255, 255, 255, 0.07);
     border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
+.launch-status-inline-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
 .launch-status-label {
     font-size: 11px;
     font-weight: 700;
     color: var(--text-primary);
+    flex: 0 0 auto;
 }
 
 .launch-status-text {
     font-size: 11px;
     color: var(--text-secondary);
     text-align: right;
+    flex: 1 1 auto;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.launch-status-progress {
+    width: 100%;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 6px;
+    display: none;
+}
+
+.launch-status-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.9), rgba(135, 104, 255, 0.86));
+    border-radius: 999px;
+    transition: width 0.3s ease;
+    width: 0%;
 }
 
 .launch-modal-body {
@@ -3386,7 +3417,7 @@ body.dark-menus .mods-filter-select {
 }
 
 .sidebar:hover,
-.sidebar.sidebar-hovered {
+.sidebar[data-expanded] {
     width: var(--sidebar-expanded);
     transform: translateY(-1px);
     box-shadow: 0 18px 32px rgba(0, 0, 0, 0.16);
@@ -3424,7 +3455,7 @@ body.dark-menus .mods-filter-select {
 }
 
 .sidebar:hover .nav-item,
-.sidebar.sidebar-hovered .nav-item {
+.sidebar[data-expanded] .nav-item {
     padding: 0 12px;
     gap: 12px;
     width: 100%;
@@ -3442,7 +3473,7 @@ body.dark-menus .mods-filter-select {
 }
 
 .sidebar:hover .nav-label,
-.sidebar.sidebar-hovered .nav-label {
+.sidebar[data-expanded] .nav-label {
     max-width: 98px;
     opacity: 1;
     transform: translateX(0);
@@ -3464,7 +3495,7 @@ body.dark-menus .mods-filter-select {
 }
 
 .sidebar:hover .account-card,
-.sidebar.sidebar-hovered .account-card {
+.sidebar[data-expanded] .account-card {
     width: 100%;
     padding: 8px 10px;
     gap: 10px;
@@ -3488,7 +3519,7 @@ body.dark-menus .mods-filter-select {
 }
 
 .sidebar:hover .account-meta,
-.sidebar.sidebar-hovered .account-meta {
+.sidebar[data-expanded] .account-meta {
     max-width: 104px;
     opacity: 1;
     transform: translateX(0);
@@ -3496,9 +3527,9 @@ body.dark-menus .mods-filter-select {
 }
 
 .sidebar:hover ~ .content-area,
-.sidebar.sidebar-hovered ~ .content-area,
+.sidebar[data-expanded] ~ .content-area,
 .sidebar:hover + .toolbar,
-.sidebar.sidebar-hovered + .toolbar {
+.sidebar[data-expanded] + .toolbar {
     transition-duration: 420ms;
     transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -3881,7 +3912,8 @@ body.platform-win .mods-filter-field {
     flex: 0 0 auto;
 }
 
-.sidebar:hover ~ .content-area .save-state {
+.sidebar:hover ~ .content-area .save-state,
+.sidebar[data-expanded] ~ .content-area .save-state {
     opacity: 1;
     visibility: visible;
     transform: translateY(0);
@@ -3898,18 +3930,21 @@ body.platform-win .mods-filter-field {
         visibility 0.22s ease;
 }
 
-.sidebar:hover ~ .content-area .content-panel[data-panel="mods"] .mods-search-summary--inline {
+.sidebar:hover ~ .content-area .content-panel[data-panel="mods"] .mods-search-summary--inline,
+.sidebar[data-expanded] ~ .content-area .content-panel[data-panel="mods"] .mods-search-summary--inline {
     opacity: 0;
     visibility: hidden;
     transform: translateY(-6px) scale(0.96);
     pointer-events: none;
 }
 
-.sidebar:hover ~ .content-area .content-panel[data-panel="mods"] .mods-result-actions {
+.sidebar:hover ~ .content-area .content-panel[data-panel="mods"] .mods-result-actions,
+.sidebar[data-expanded] ~ .content-area .content-panel[data-panel="mods"] .mods-result-actions {
     gap: 8px;
 }
 
-.sidebar:hover ~ .content-area .content-panel[data-panel="mods"] .mods-result-head {
+.sidebar:hover ~ .content-area .content-panel[data-panel="mods"] .mods-result-head,
+.sidebar[data-expanded] ~ .content-area .content-panel[data-panel="mods"] .mods-result-head {
     grid-template-columns: minmax(0, 1fr) auto;
 }
 

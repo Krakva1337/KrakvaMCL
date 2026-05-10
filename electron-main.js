@@ -26,16 +26,17 @@ function getFromCache(key) {
     return cache[key].data;
 }
 
-function setInCache(key, data) {
+function setInCache(key, data, ttl) {
     if (!cache[key]) {
-        cache[key] = { data: null, timestamp: 0, ttl: 5000 };
+        cache[key] = { data: null, timestamp: 0, ttl: ttl || 5000 };
     }
+    if (ttl) cache[key].ttl = ttl;
     cache[key].data = data;
     cache[key].timestamp = Date.now();
 }
 
 const MODRINTH_API_BASE = 'https://api.modrinth.com/v2';
-const MODRINTH_USER_AGENT = 'KrakvaMCL/0.1.0 (desktop launcher)';
+const MODRINTH_USER_AGENT = 'KrakvaMCL/2.0 (desktop launcher)';
 const FABRIC_META_BASE = 'https://meta.fabricmc.net/v2';
 const FORGE_MAVEN_BASE = 'https://maven.minecraftforge.net';
 const FORGE_PROMOTIONS_URL = `${FORGE_MAVEN_BASE}/net/minecraftforge/forge/promotions_slim.json`;
@@ -1466,7 +1467,7 @@ function buildLaunchArguments({ runtime, build, javaExecutable, settings, accoun
         user_properties: '{}',
         natives_directory: runtime.nativesDir,
         launcher_name: 'KrakvaMCL',
-        launcher_version: app.getVersion?.() || '0.1.0',
+        launcher_version: app.getVersion?.() || '2.0',
         classpath,
         classpath_separator: path.delimiter,
         library_directory: runtime.libraryDirectory || librariesRoot,
@@ -2948,7 +2949,7 @@ async function fetchRemoteLauncherManifest(token = '') {
 }
 
 function getLauncherVersion() {
-    return app.getVersion?.() || '0.1.0';
+    return app.getVersion?.() || '2.0';
 }
 
 async function checkLauncherUpdates(token = '') {
@@ -3039,28 +3040,20 @@ async function applyLauncherUpdate(token = '') {
     };
 }
 
-async function getModrinthCategories() {
+async function getModrinthCategories(contentType = 'mods') {
+    const typeInfo = CONTENT_TYPE_MAP[contentType] || CONTENT_TYPE_MAP.mods;
     const payload = await fetchJson(`${MODRINTH_API_BASE}/tag/category`, {
-        headers: {
-            'User-Agent': MODRINTH_USER_AGENT
-        }
+        headers: { 'User-Agent': MODRINTH_USER_AGENT }
     });
 
     const baseFilters = [{ value: 'all', label: 'All' }];
     const categories = (payload || [])
-        .filter((item) => item.project_type === 'mod')
-        .map((item) => ({
-            value: item.name,
-            label: item.name,
-            header: item.header || ''
-        }));
+        .filter((item) => item.project_type === typeInfo.projectType)
+        .map((item) => ({ value: item.name, label: item.name, header: item.header || '' }));
 
     const seen = new Set();
     return [...baseFilters, ...categories].filter((item) => {
-        if (seen.has(item.value)) {
-            return false;
-        }
-
+        if (seen.has(item.value)) return false;
         seen.add(item.value);
         return true;
     });
@@ -3097,31 +3090,39 @@ async function getBuildOptions() {
     };
 }
 
-async function searchModrinthMods(query, gameVersion = DEFAULT_GAME_VERSION, loader = DEFAULT_LOADER, category = 'all', limit = 12, offset = 0) {
+// Маппинг типов контента → Modrinth project_type и папки установки
+const CONTENT_TYPE_MAP = {
+    mods:          { projectType: 'mod',          subdir: 'mods',          useLoader: true  },
+    resourcepacks: { projectType: 'resourcepack',  subdir: 'resourcepacks', useLoader: false },
+    shaderpacks:   { projectType: 'shader',         subdir: 'shaderpacks',   useLoader: false },
+    datapacks:     { projectType: 'datapack',       subdir: 'datapacks',     useLoader: false },
+};
+
+async function searchModrinthMods(query, gameVersion = DEFAULT_GAME_VERSION, loader = DEFAULT_LOADER, category = 'all', limit = 12, offset = 0, contentType = 'mods') {
+    const typeInfo = CONTENT_TYPE_MAP[contentType] || CONTENT_TYPE_MAP.mods;
+
     const facets = [
-        ['project_type:mod'],
-        [`categories:${loader}`],
+        [`project_type:${typeInfo.projectType}`],
         [`versions:${gameVersion}`]
     ];
+
+    // Для модов добавляем загрузчик, для остальных — нет
+    if (typeInfo.useLoader && loader && loader !== 'vanilla') {
+        facets.push([`categories:${loader}`]);
+    }
 
     if (category && category !== 'all') {
         facets.push([`categories:${category}`]);
     }
 
     const url = new URL(`${MODRINTH_API_BASE}/search`);
-    if (query) {
-        url.searchParams.set('query', query);
-    }
+    if (query) url.searchParams.set('query', query);
     url.searchParams.set('limit', String(Math.max(1, Number(limit) || 12)));
     url.searchParams.set('offset', String(Math.max(0, Number(offset) || 0)));
     url.searchParams.set('index', query ? 'relevance' : 'downloads');
     url.searchParams.set('facets', JSON.stringify(facets));
 
-    const payload = await fetchJson(url, {
-        headers: {
-            'User-Agent': MODRINTH_USER_AGENT
-        }
-    });
+    const payload = await fetchJson(url, { headers: { 'User-Agent': MODRINTH_USER_AGENT } });
 
     return {
         total: Number(payload.total_hits || payload.total || 0),
@@ -3134,24 +3135,25 @@ async function searchModrinthMods(query, gameVersion = DEFAULT_GAME_VERSION, loa
             iconUrl: item.icon_url || item.featured_gallery || item.gallery?.[0] || '',
             categories: item.display_categories || item.categories || [],
             versions: item.versions || [],
+            contentType,
             raw: item
         }))
     };
 }
 
-async function getModrinthDownload(projectId, gameVersion = DEFAULT_GAME_VERSION, loader = DEFAULT_LOADER) {
+async function getModrinthDownload(projectId, gameVersion = DEFAULT_GAME_VERSION, loader = DEFAULT_LOADER, contentType = 'mods') {
+    const typeInfo = CONTENT_TYPE_MAP[contentType] || CONTENT_TYPE_MAP.mods;
     const url = new URL(`${MODRINTH_API_BASE}/project/${projectId}/version`);
-    url.searchParams.set('loaders', JSON.stringify([loader]));
+
+    if (typeInfo.useLoader && loader && loader !== 'vanilla') {
+        url.searchParams.set('loaders', JSON.stringify([loader]));
+    }
     url.searchParams.set('game_versions', JSON.stringify([gameVersion]));
     url.searchParams.set('include_changelog', 'false');
 
-    const versions = await fetchJson(url, {
-        headers: {
-            'User-Agent': MODRINTH_USER_AGENT
-        }
-    });
-
-    const version = versions.find((item) => Array.isArray(item.files) && item.files.length > 0);
+    const versions = await fetchJson(url, { headers: { 'User-Agent': MODRINTH_USER_AGENT } });
+    const version = versions.find((item) => Array.isArray(item.files) && item.files.length > 0)
+        || versions[0];
 
     if (!version) {
         throw new Error('Не удалось подобрать совместимую версию Modrinth.');
@@ -3163,7 +3165,8 @@ async function getModrinthDownload(projectId, gameVersion = DEFAULT_GAME_VERSION
         url: file.url,
         filename: file.filename,
         versionName: version.version_number || version.name,
-        version
+        version,
+        subdir: typeInfo.subdir
     };
 }
 
@@ -3491,42 +3494,59 @@ function setActiveBuild(buildId) {
     return build;
 }
 
-async function searchMods({ query, gameVersion = DEFAULT_GAME_VERSION, loader = DEFAULT_LOADER, category = 'all', page = 1, limit = 12 }) {
+async function searchMods({ query, gameVersion = DEFAULT_GAME_VERSION, loader = DEFAULT_LOADER, category = 'all', page = 1, limit = 12, contentType = 'mods' }) {
     const safeLimit = Math.max(1, Number(limit) || 12);
     const safePage = Math.max(1, Number(page) || 1);
     const offset = (safePage - 1) * safeLimit;
-    return searchModrinthMods((query || '').trim(), gameVersion, loader, category, safeLimit, offset);
+    return searchModrinthMods((query || '').trim(), gameVersion, loader, category, safeLimit, offset, contentType);
 }
 
-async function downloadMod({ modId, gameVersion = DEFAULT_GAME_VERSION, loader = DEFAULT_LOADER, title = '', author = '' }) {
+async function downloadMod({ modId, gameVersion = DEFAULT_GAME_VERSION, loader = DEFAULT_LOADER, title = '', author = '', contentType = 'mods' }) {
     const activeBuild = getActiveBuild();
-    const resolved = await getModrinthDownload(modId, gameVersion, loader);
-    const destination = await downloadFile(activeBuild.modsPath, resolved.url, resolved.filename);
-    setBuildModMeta(activeBuild.id, path.basename(destination), {
-        projectId: modId,
-        title: title || inferModTitle(resolved.filename),
-        author: author || '',
-        versionName: resolved.versionName || '',
-        source: 'modrinth',
-        installedAt: new Date().toISOString()
-    });
+    const resolved = await getModrinthDownload(modId, gameVersion, loader, contentType);
 
-    const installedModsState = listInstalledMods(activeBuild.id);
-    const installedKeys = new Set(installedModsState.mods.flatMap((mod) => [
-        mod.projectId ? String(mod.projectId) : '',
-        mod.normalizedName || ''
-    ]).filter(Boolean));
-    const dependencies = await resolveRequiredDependencies(resolved.version, gameVersion, loader);
-    const missingDependencies = dependencies.filter((dependency) => {
-        const dependencyKey = normalizeModKey(dependency.title || dependency.filename || dependency.projectId);
-        return !installedKeys.has(String(dependency.projectId)) && !installedKeys.has(dependencyKey);
-    });
+    // Определяем целевую папку в зависимости от типа контента
+    const subdir = resolved.subdir || 'mods';
+    const targetDir = path.join(getBuildDir(activeBuild.id), subdir);
+    fs.mkdirSync(targetDir, { recursive: true });
+
+    const destination = await downloadFile(targetDir, resolved.url, resolved.filename);
+    const basename = path.basename(destination);
+
+    // Мета сохраняется только для модов (остальные не имеют projectId в mods-meta)
+    if (contentType === 'mods') {
+        setBuildModMeta(activeBuild.id, basename, {
+            projectId: modId,
+            title: title || inferModTitle(resolved.filename),
+            author: author || '',
+            versionName: resolved.versionName || '',
+            source: 'modrinth',
+            installedAt: new Date().toISOString()
+        });
+    }
+
+    const installedModsState = contentType === 'mods' ? listInstalledMods(activeBuild.id) : { mods: [] };
+
+    // Зависимости только для модов
+    let missingDependencies = [];
+    if (contentType === 'mods') {
+        const installedKeys = new Set(installedModsState.mods.flatMap((mod) => [
+            mod.projectId ? String(mod.projectId) : '',
+            mod.normalizedName || ''
+        ]).filter(Boolean));
+        const dependencies = await resolveRequiredDependencies(resolved.version, gameVersion, loader);
+        missingDependencies = dependencies.filter((dependency) => {
+            const dependencyKey = normalizeModKey(dependency.title || dependency.filename || dependency.projectId);
+            return !installedKeys.has(String(dependency.projectId)) && !installedKeys.has(dependencyKey);
+        });
+    }
 
     return {
         filePath: destination,
-        filename: path.basename(destination),
-        folder: activeBuild.modsPath,
+        filename: basename,
+        folder: targetDir,
         versionName: resolved.versionName,
+        contentType,
         installedMods: installedModsState,
         missingDependencies
     };
@@ -3714,7 +3734,6 @@ ipcMain.handle('mods:search', async (_event, payload) => {
 });
 
 ipcMain.handle('mods:download', async (_event, payload) => {
-    // Downloads should not be cached as they represent state changes
     return downloadMod(payload || {});
 });
 
@@ -3759,13 +3778,14 @@ ipcMain.handle('mods:state', () => {
     };
 });
 
-ipcMain.handle('mods:filters', async () => {
-    const cached = getFromCache('modsFilters');
-    if (cached) {
-        return cached;
-    }
-    const result = await getModrinthCategories();
-    setInCache('modsFilters', result);
+ipcMain.handle('mods:filters', async (_event, payload) => {
+    const contentType = payload?.contentType || 'mods';
+    const cacheKey = `modsFilters_${contentType}`;
+    if (!cache[cacheKey]) cache[cacheKey] = { data: null, timestamp: 0, ttl: 60000 };
+    const cached = getFromCache(cacheKey);
+    if (cached) return cached;
+    const result = await getModrinthCategories(contentType);
+    setInCache(cacheKey, result, 60000);
     return result;
 });
 
