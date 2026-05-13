@@ -20,6 +20,7 @@ let animationFrame = null;
 // Кеш данные
 let cacheData = null;
 const CACHE_VERSION = 1;
+const PRELOADED_SESSION_KEY = 'krakvamcl.preloaded-data';
 
 // Функция установки прогресса
 function setProgress(percent) {
@@ -87,6 +88,18 @@ async function saveCache(data) {
         console.log('Кеш сохранён');
     } catch (e) {
         console.warn('Ошибка сохранения кеша:', e);
+    }
+}
+
+function persistPreloadedSessionData(data) {
+    try {
+        sessionStorage.setItem(PRELOADED_SESSION_KEY, JSON.stringify({
+            version: CACHE_VERSION,
+            timestamp: Date.now(),
+            data
+        }));
+    } catch (e) {
+        console.warn('Ошибка сохранения preload session cache:', e);
     }
 }
 
@@ -232,6 +245,7 @@ async function loadPreloadData() {
 
         // Сохраняем обновленный кеш
         await saveCache(window.__krakvamclPreloadedData);
+        persistPreloadedSessionData(window.__krakvamclPreloadedData);
 
         return true;
     } catch (error) {

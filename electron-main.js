@@ -40,9 +40,11 @@ const MODRINTH_USER_AGENT = 'KrakvaMCL/2.0 (desktop launcher)';
 const FABRIC_META_BASE = 'https://meta.fabricmc.net/v2';
 const FORGE_MAVEN_BASE = 'https://maven.minecraftforge.net';
 const FORGE_PROMOTIONS_URL = `${FORGE_MAVEN_BASE}/net/minecraftforge/forge/promotions_slim.json`;
+const FORGE_MAVEN_METADATA_URL = `${FORGE_MAVEN_BASE}/net/minecraftforge/forge/maven-metadata.xml`;
 const DEFAULT_GAME_VERSION = '1.21.11';
 const DEFAULT_LOADER = 'vanilla';
 const DEFAULT_BUILD_ID = 'Standart';
+const DEFAULT_LIBRARY_MAVEN_BASE = 'https://libraries.minecraft.net';
 const ALLOWED_BUILD_LOADERS = ['vanilla', 'forge', 'fabric', 'neoforge'];
 const MOJANG_VERSION_MANIFEST_URL = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
 const BUILD_CONFIG_IMPORT_FILES = ['options.txt', 'servers.dat'];
@@ -94,6 +96,7 @@ const javaRuntimesRoot = path.join(launcherDataRoot, 'java-runtimes');
 const logConfigsRoot = path.join(launcherDataRoot, 'log-configs');
 const reportsRoot = path.join(launcherDataRoot, 'crash-reports');
 const javaCandidatesCachePath = path.join(launcherDataRoot, 'java-candidates-cache.json');
+const appCachePath = path.join(launcherDataRoot, 'app-cache.json');
 const bundledKrakvaAgentPath = path.join(__dirname, 'assets', 'KrakvaAgent-runtime.jar');
 const bundledAuthlibInjectorPath = path.join(__dirname, 'assets', 'authlib-injector-1.2.7.jar');
 const DISCORD_RPC_GITHUB_URL = 'https://github.com/Krakva1337/KrakvaMCL';
@@ -166,6 +169,24 @@ function writeJavaCandidatesCache(javaOptions = []) {
     } catch {
         // Ignore cache write errors.
     }
+}
+
+function readAppCache() {
+    if (!fs.existsSync(appCachePath)) {
+        return null;
+    }
+
+    try {
+        return JSON.parse(fs.readFileSync(appCachePath, 'utf-8'));
+    } catch {
+        return null;
+    }
+}
+
+function writeAppCache(value) {
+    ensureLauncherDataRoot();
+    fs.writeFileSync(appCachePath, JSON.stringify(value ?? null, null, 2));
+    return true;
 }
 
 function ensureBundledAssetFile(sourcePath, destinationName) {
@@ -249,16 +270,16 @@ function buildDirNameFromName(name) {
         .trim() || 'Build';
 }
 
-function getManagedJavaRuntimeId(majorVersion) {
-    return `temurin-${Number(majorVersion) || 0}-${process.platform}-${process.arch}`;
+function getManagedJavaRuntimeId(majorVersion, targetArch = process.arch) {
+    return `temurin-${Number(majorVersion) || 0}-${process.platform}-${normalizeJavaArchitecture(targetArch) || targetArch || process.arch}`;
 }
 
-function getManagedJavaRuntimeDir(majorVersion) {
-    return path.join(javaRuntimesRoot, getManagedJavaRuntimeId(majorVersion));
+function getManagedJavaRuntimeDir(majorVersion, targetArch = process.arch) {
+    return path.join(javaRuntimesRoot, getManagedJavaRuntimeId(majorVersion, targetArch));
 }
 
-function getManagedJavaManifestPath(majorVersion) {
-    return path.join(getManagedJavaRuntimeDir(majorVersion), 'runtime.json');
+function getManagedJavaManifestPath(majorVersion, targetArch = process.arch) {
+    return path.join(getManagedJavaRuntimeDir(majorVersion, targetArch), 'runtime.json');
 }
 
 function getBuildDir(buildId) {
@@ -308,6 +329,63 @@ function getBuildVersionMetaPath(buildId, versionId) {
 
 function getBuildGameDir(buildId) {
     return getBuildDir(buildId);
+}
+
+function isLegacyMacWindowedBuild(build = null) {
+    if (process.platform !== 'darwin') {
+        return false;
+    }
+
+    const parsed = parseMinecraftReleaseVersion(build?.minecraftVersion || '');
+    if (!parsed || parsed.major !== 1) {
+        return false;
+    }
+
+    return parsed.minor <= 12;
+}
+
+function ensureLegacyMacWindowedOptions(build) {
+    if (!isLegacyMacWindowedBuild(build)) {
+        return;
+    }
+
+    const optionsPath = path.join(getBuildGameDir(build.id), 'options.txt');
+    const requiredEntries = new Map([
+        ['fullscreen', 'false'],
+        ['pauseOnLostFocus', 'false']
+    ]);
+
+    let lines = [];
+    if (fs.existsSync(optionsPath)) {
+        try {
+            lines = fs.readFileSync(optionsPath, 'utf-8').split(/\r?\n/).filter(Boolean);
+        } catch {
+            lines = [];
+        }
+    }
+
+    const remainingKeys = new Set(requiredEntries.keys());
+    const patchedLines = lines.map((line) => {
+        const separatorIndex = line.indexOf(':');
+        if (separatorIndex === -1) {
+            return line;
+        }
+
+        const key = line.slice(0, separatorIndex);
+        if (!requiredEntries.has(key)) {
+            return line;
+        }
+
+        remainingKeys.delete(key);
+        return `${key}:${requiredEntries.get(key)}`;
+    });
+
+    remainingKeys.forEach((key) => {
+        patchedLines.push(`${key}:${requiredEntries.get(key)}`);
+    });
+
+    fs.mkdirSync(path.dirname(optionsPath), { recursive: true });
+    fs.writeFileSync(optionsPath, `${patchedLines.join('\n')}\n`, 'utf-8');
 }
 
 function getAssetsIndexesDir() {
@@ -904,6 +982,11 @@ function getLibraryArtifactPath(library = {}) {
         return library.downloads.artifact.path;
     }
 
+    // Some legacy libraries ship only natives/classifiers and have no base jar artifact.
+    if (library?.downloads && !library.downloads.artifact && library.downloads.classifiers) {
+        return null;
+    }
+
     const [group, artifact, version, classifier] = String(library.name || '').split(':');
     if (!group || !artifact || !version) {
         return null;
@@ -913,21 +996,54 @@ function getLibraryArtifactPath(library = {}) {
     return path.join(group.replaceAll('.', '/'), artifact, version, filename);
 }
 
+function getLegacyForgeUniversalDownloadUrl(library = {}, artifactPath = '') {
+    const [group, artifact, version, classifier] = String(library.name || '').split(':');
+    if (group !== 'net.minecraftforge' || artifact !== 'forge' || classifier || !version || !artifactPath) {
+        return '';
+    }
+
+    const baseUrl = String(library?.url || '').trim().replace(/\/+$/, '');
+    if (!baseUrl) {
+        return '';
+    }
+
+    const universalFilename = `forge-${version}-universal.jar`;
+    const artifactDir = path.posix.dirname(artifactPath.replaceAll(path.sep, '/'));
+    return `${baseUrl}/${artifactDir}/${universalFilename}`;
+}
+
 function getLibraryArtifactDownload(library = {}) {
     if (library?.downloads?.artifact?.url) {
         return library.downloads.artifact;
     }
 
     const artifactPath = getLibraryArtifactPath(library);
-    if (!artifactPath || !library?.url) {
+    if (!artifactPath) {
+        return null;
+    }
+
+    const baseUrl = String(library?.url || DEFAULT_LIBRARY_MAVEN_BASE).trim();
+    if (!baseUrl) {
         return null;
     }
 
     return {
         path: artifactPath,
-        url: `${String(library.url).replace(/\/+$/, '')}/${artifactPath.replaceAll(path.sep, '/')}`,
+        url: getLegacyForgeUniversalDownloadUrl(library, artifactPath)
+            || `${baseUrl.replace(/\/+$/, '')}/${artifactPath.replaceAll(path.sep, '/')}`,
         size: 0
     };
+}
+
+function getLibraryConflictKey(library = {}) {
+    const [group, artifact, , classifier] = String(library?.name || '').split(':');
+    if (!group || !artifact) {
+        return '';
+    }
+
+    return classifier
+        ? `${group}:${artifact}:${classifier}`
+        : `${group}:${artifact}`;
 }
 
 function resolveNativeClassifier(library = {}) {
@@ -1010,10 +1126,79 @@ async function fetchFabricLoaderProfile(gameVersion) {
     return fetchJson(`${FABRIC_META_BASE}/versions/loader/${encodeURIComponent(gameVersion)}/${encodeURIComponent(selectedLoader.loader.version)}/profile/json`);
 }
 
+async function fetchText(url, options = {}) {
+    const response = await fetch(url, options);
+
+    if (!response.ok) {
+        const message = (await response.text()).trim() || `HTTP ${response.status}`;
+        throw new Error(message);
+    }
+
+    return response.text();
+}
+
+function compareForgeVersionParts(leftVersion, rightVersion) {
+    const leftParts = String(leftVersion || '').split(/[\.-]/);
+    const rightParts = String(rightVersion || '').split(/[\.-]/);
+    const maxLength = Math.max(leftParts.length, rightParts.length);
+
+    for (let index = 0; index < maxLength; index += 1) {
+        const leftPart = leftParts[index] || '';
+        const rightPart = rightParts[index] || '';
+        const leftNumber = Number(leftPart);
+        const rightNumber = Number(rightPart);
+        const leftIsNumber = leftPart !== '' && Number.isFinite(leftNumber);
+        const rightIsNumber = rightPart !== '' && Number.isFinite(rightNumber);
+
+        if (leftIsNumber && rightIsNumber && leftNumber !== rightNumber) {
+            return leftNumber - rightNumber;
+        }
+
+        if (leftPart !== rightPart) {
+            return leftPart.localeCompare(rightPart, undefined, { numeric: true, sensitivity: 'base' });
+        }
+    }
+
+    return 0;
+}
+
+async function fetchForgeVersionFromMavenMetadata(gameVersion) {
+    const xml = await fetchText(FORGE_MAVEN_METADATA_URL);
+    const versions = Array.from(xml.matchAll(/<version>([^<]+)<\/version>/g), (match) => match[1]?.trim())
+        .filter(Boolean)
+        .filter((version) => version.startsWith(`${gameVersion}-`));
+
+    if (!versions.length) {
+        return '';
+    }
+
+    const stableVersions = versions.filter((version) => {
+        const loaderVersion = version.slice(`${gameVersion}-`.length);
+        return !/[a-z]/i.test(loaderVersion);
+    });
+    const candidates = stableVersions.length ? stableVersions : versions;
+    const selectedVersion = candidates.sort((left, right) => {
+        const leftLoaderVersion = left.slice(`${gameVersion}-`.length);
+        const rightLoaderVersion = right.slice(`${gameVersion}-`.length);
+        return compareForgeVersionParts(leftLoaderVersion, rightLoaderVersion);
+    }).at(-1);
+
+    return selectedVersion ? selectedVersion.slice(`${gameVersion}-`.length) : '';
+}
+
 async function fetchForgeVersion(gameVersion) {
-    const promotions = await fetchJson(FORGE_PROMOTIONS_URL);
-    const promos = promotions?.promos || {};
-    return promos[`${gameVersion}-recommended`] || promos[`${gameVersion}-latest`] || '';
+    try {
+        const promotions = await fetchJson(FORGE_PROMOTIONS_URL);
+        const promos = promotions?.promos || {};
+        const promotedVersion = promos[`${gameVersion}-recommended`] || promos[`${gameVersion}-latest`] || '';
+        if (promotedVersion) {
+            return promotedVersion;
+        }
+    } catch (error) {
+        console.warn(`Forge promotions lookup failed for ${gameVersion}: ${error.message}`);
+    }
+
+    return fetchForgeVersionFromMavenMetadata(gameVersion);
 }
 
 function getForgeInstallerUrl(gameVersion, forgeVersion) {
@@ -1035,6 +1220,213 @@ function updateBuildMeta(buildId, patch = {}) {
     return nextMeta;
 }
 
+function getJavaToolPath(javaExecutable, toolName) {
+    const executableName = process.platform === 'win32' ? `${toolName}.exe` : toolName;
+    const javaBinDir = path.dirname(String(javaExecutable || ''));
+    const siblingTool = path.join(javaBinDir, executableName);
+    return fs.existsSync(siblingTool) ? siblingTool : '';
+}
+
+async function ensureForgeInstallerLauncherFiles(build, onStatus) {
+    const minecraftVersion = build.minecraftVersion || DEFAULT_GAME_VERSION;
+    const vanillaMeta = await ensureVersionMetadata(build.id, minecraftVersion);
+
+    onStatus?.({
+        stage: 'download',
+        status: 'running',
+        title: 'Подготовка vanilla runtime',
+        detail: minecraftVersion,
+        progress: 8
+    });
+
+    await ensureClientJar(build, vanillaMeta, ({ downloadedBytes, totalBytes, speedBytes }) => {
+        onStatus?.({
+            stage: 'download',
+            status: 'running',
+            title: 'Скачивание vanilla клиента',
+            detail: `${formatBytes(downloadedBytes)} / ${formatBytes(totalBytes || downloadedBytes)}`,
+            speedBytes,
+            progress: totalBytes ? Math.round((downloadedBytes / totalBytes) * 100) : 12
+        });
+    });
+
+    const launcherProfilesPath = path.join(build.path, 'launcher_profiles.json');
+    if (!fs.existsSync(launcherProfilesPath)) {
+        fs.writeFileSync(launcherProfilesPath, JSON.stringify({
+            profiles: {},
+            settings: {},
+            version: 3
+        }, null, 2));
+    }
+}
+
+async function runForgeInstallerCli(javaExecutable, installerJarPath, installDir, onStatus, fullVersion) {
+    const installArgs = ['-jar', installerJarPath, '--installClient', installDir];
+    return new Promise((resolve, reject) => {
+        const child = spawn(javaExecutable, installArgs, {
+            cwd: installDir,
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
+        let stdout = '';
+        let stderr = '';
+
+        child.stdout?.on('data', (chunk) => {
+            const text = String(chunk || '');
+            stdout += text;
+            onStatus?.({
+                stage: 'download',
+                status: 'running',
+                title: 'Установка Forge',
+                detail: text.trim().slice(-180) || fullVersion,
+                progress: 55
+            });
+        });
+
+        child.stderr?.on('data', (chunk) => {
+            const text = String(chunk || '');
+            stderr += text;
+            onStatus?.({
+                stage: 'download',
+                status: 'running',
+                title: 'Forge installer',
+                detail: text.trim().slice(-180) || fullVersion,
+                progress: 55
+            });
+        });
+
+        child.on('error', reject);
+        child.on('close', (code) => {
+            if (code === 0) {
+                resolve({ stdout, stderr });
+                return;
+            }
+
+            const error = new Error(stderr.trim() || stdout.trim() || `Forge installer завершился с кодом ${code}.`);
+            error.code = code;
+            error.stdout = stdout;
+            error.stderr = stderr;
+            reject(error);
+        });
+    });
+}
+
+async function runForgeInstallerClientFallback(javaExecutable, installerJarPath, installDir, helperDir, onStatus, fullVersion) {
+    const helperSourcePath = path.join(helperDir, 'ForgeClientInstallHelper.java');
+    const helperClassPath = path.join(helperDir, 'ForgeClientInstallHelper.class');
+    const helperSource = `import java.io.File;
+import com.google.common.base.Predicates;
+import net.minecraftforge.installer.InstallerAction;
+
+public class ForgeClientInstallHelper {
+    public static void main(String[] args) {
+        if (args.length < 1) {
+            System.err.println("Missing install directory.");
+            System.exit(2);
+        }
+
+        try {
+            File installDir = new File(args[0]);
+            boolean result = InstallerAction.CLIENT.run(installDir, Predicates.alwaysTrue());
+            if (!result) {
+                String message = InstallerAction.CLIENT.getFileError(installDir);
+                if (message == null || message.trim().isEmpty()) {
+                    message = "Forge client installation returned false.";
+                }
+                System.err.println(message);
+                System.exit(1);
+            }
+
+            String message = InstallerAction.CLIENT.getSuccessMessage();
+            if (message != null && !message.trim().isEmpty()) {
+                System.out.println(message);
+            }
+        } catch (Throwable error) {
+            error.printStackTrace();
+            System.exit(1);
+        }
+    }
+}
+`;
+
+    fs.mkdirSync(helperDir, { recursive: true });
+    fs.writeFileSync(helperSourcePath, helperSource, 'utf-8');
+
+    const javacExecutable = getJavaToolPath(javaExecutable, 'javac') || 'javac';
+    const compileArgs = ['-cp', installerJarPath, '-d', helperDir, helperSourcePath];
+
+    await new Promise((resolve, reject) => {
+        const child = spawn(javacExecutable, compileArgs, {
+            cwd: helperDir,
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
+        let stderr = '';
+
+        child.stderr?.on('data', (chunk) => {
+            stderr += String(chunk || '');
+        });
+
+        child.on('error', reject);
+        child.on('close', (code) => {
+            if (code === 0 && fs.existsSync(helperClassPath)) {
+                resolve();
+                return;
+            }
+
+            reject(new Error(stderr.trim() || `Не удалось подготовить helper для Forge installer (код ${code}).`));
+        });
+    });
+
+    const classPathSeparator = process.platform === 'win32' ? ';' : ':';
+    const launchArgs = ['-cp', `${helperDir}${classPathSeparator}${installerJarPath}`, 'ForgeClientInstallHelper', installDir];
+
+    return new Promise((resolve, reject) => {
+        const child = spawn(javaExecutable, launchArgs, {
+            cwd: installDir,
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
+        let stdout = '';
+        let stderr = '';
+
+        child.stdout?.on('data', (chunk) => {
+            const text = String(chunk || '');
+            stdout += text;
+            onStatus?.({
+                stage: 'download',
+                status: 'running',
+                title: 'Установка Forge (fallback)',
+                detail: text.trim().slice(-180) || fullVersion,
+                progress: 58
+            });
+        });
+
+        child.stderr?.on('data', (chunk) => {
+            const text = String(chunk || '');
+            stderr += text;
+            onStatus?.({
+                stage: 'download',
+                status: 'running',
+                title: 'Forge installer (fallback)',
+                detail: text.trim().slice(-180) || fullVersion,
+                progress: 58
+            });
+        });
+
+        child.on('error', reject);
+        child.on('close', (code) => {
+            if (code === 0) {
+                resolve({ stdout, stderr });
+                return;
+            }
+
+            const error = new Error(stderr.trim() || stdout.trim() || `Forge fallback installer завершился с кодом ${code}.`);
+            error.code = code;
+            error.stdout = stdout;
+            error.stderr = stderr;
+            reject(error);
+        });
+    });
+}
+
 async function ensureForgeInstalled(build, javaExecutable, onStatus) {
     const cachedVersionId = String(build.runtimeVersionId || '').trim();
     if (cachedVersionId && fs.existsSync(getBuildVersionMetaPath(build.id, cachedVersionId))) {
@@ -1049,6 +1441,7 @@ async function ensureForgeInstalled(build, javaExecutable, onStatus) {
     const fullVersion = `${build.minecraftVersion}-${forgeVersion}`;
     const installerDir = path.join(getBuildDir(build.id), '.forge-installer');
     const installerJarPath = path.join(installerDir, `forge-${fullVersion}-installer.jar`);
+    const helperDir = path.join(installerDir, 'helper');
     fs.mkdirSync(installerDir, { recursive: true });
 
     onStatus?.({
@@ -1073,49 +1466,33 @@ async function ensureForgeInstalled(build, javaExecutable, onStatus) {
         });
     });
 
+    await ensureForgeInstallerLauncherFiles(build, onStatus);
+
     const beforeVersions = new Set(fs.readdirSync(getBuildVersionsDir(build.id), { withFileTypes: true })
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name));
-    const installArgs = ['-jar', installerJarPath, '--installClient', build.path];
+    try {
+        await runForgeInstallerCli(javaExecutable, installerJarPath, build.path, onStatus, fullVersion);
+    } catch (error) {
+        const combinedOutput = `${error.stderr || ''}\n${error.stdout || ''}`.toLowerCase();
+        const needsFallback = combinedOutput.includes('unrecognizedoptionexception')
+            || combinedOutput.includes('not a recognized option')
+            || combinedOutput.includes('unrecognized option');
 
-    await new Promise((resolve, reject) => {
-        const child = spawn(javaExecutable, installArgs, {
-            cwd: build.path,
-            stdio: ['ignore', 'pipe', 'pipe']
-        });
-        let stderr = '';
+        if (!needsFallback) {
+            throw error;
+        }
 
-        child.stdout?.on('data', (chunk) => {
-            onStatus?.({
-                stage: 'download',
-                status: 'running',
-                title: 'Установка Forge',
-                detail: String(chunk || '').trim().slice(-180) || fullVersion,
-                progress: 55
-            });
-        });
-
-        child.stderr?.on('data', (chunk) => {
-            stderr += String(chunk || '');
-            onStatus?.({
-                stage: 'download',
-                status: 'running',
-                title: 'Forge installer',
-                detail: String(chunk || '').trim().slice(-180) || fullVersion,
-                progress: 55
-            });
+        onStatus?.({
+            stage: 'download',
+            status: 'running',
+            title: 'Forge installer',
+            detail: 'CLI не поддерживается, пробую совместимый fallback',
+            progress: 57
         });
 
-        child.on('error', reject);
-        child.on('close', (code) => {
-            if (code === 0) {
-                resolve();
-                return;
-            }
-
-            reject(new Error(stderr.trim() || `Forge installer завершился с кодом ${code}.`));
-        });
-    });
+        await runForgeInstallerClientFallback(javaExecutable, installerJarPath, build.path, helperDir, onStatus, fullVersion);
+    }
 
     const afterVersions = fs.readdirSync(getBuildVersionsDir(build.id), { withFileTypes: true })
         .filter((entry) => entry.isDirectory())
@@ -1256,7 +1633,26 @@ async function ensureLibraries(versionMeta, onProgress, options = {}) {
         ? options.libraryRoots
         : [librariesRoot];
     let completed = 0;
-    const activeLibraries = (versionMeta.libraries || []).filter((library) => isAllowedByRules(library.rules, features));
+    const filteredLibraries = (versionMeta.libraries || []).filter((library) => isAllowedByRules(library.rules, features));
+    const keptConflictKeys = new Set();
+    const activeLibraries = [];
+
+    // For inherited version chains, keep the last declared version of the same group:artifact.
+    // This lets Forge-era profiles override vanilla libraries like Guava/Commons Lang.
+    for (let index = filteredLibraries.length - 1; index >= 0; index -= 1) {
+        const library = filteredLibraries[index];
+        const conflictKey = getLibraryConflictKey(library);
+
+        if (conflictKey && keptConflictKeys.has(conflictKey)) {
+            continue;
+        }
+
+        if (conflictKey) {
+            keptConflictKeys.add(conflictKey);
+        }
+
+        activeLibraries.unshift(library);
+    }
 
     for (const library of activeLibraries) {
         const artifactDownload = getLibraryArtifactDownload(library);
@@ -1769,6 +2165,21 @@ function buildLaunchArguments({ runtime, build, javaExecutable, settings, accoun
         ? resolveArgumentList(versionMeta.arguments.game, replacements, features)
         : parseLegacyArguments(versionMeta.minecraftArguments).map((value) => interpolateValue(value, replacements));
 
+    const hasResolutionArguments = gameArguments.some((argument, index) => {
+        const current = String(argument);
+        const previous = String(gameArguments[index - 1] || '');
+        return current === '--width'
+            || current === '--height'
+            || previous === '--width'
+            || previous === '--height'
+            || current.startsWith('--width=')
+            || current.startsWith('--height=');
+    });
+
+    if (isLegacyMacWindowedBuild(build) && !hasResolutionArguments) {
+        gameArguments.push('--width', '1280', '--height', '720');
+    }
+
     // '--legacy' не существует в vanilla Minecraft — убрано.
     // user_type уже передан через replacements выше.
 
@@ -1811,13 +2222,73 @@ function requiresTranslatedMacLaunch(versionMeta = {}) {
     });
 }
 
-function resolveLaunchProcess(javaExecutable, runtime) {
+async function ensureRosettaAvailable(onStatus) {
+    if (process.platform !== 'darwin' || process.arch !== 'arm64') {
+        return;
+    }
+
+    const probe = spawnSync('/usr/bin/arch', ['-x86_64', '/usr/bin/true'], {
+        encoding: 'utf8',
+        timeout: 20000
+    });
+    if (probe.status === 0) {
+        return;
+    }
+
+    onStatus?.({
+        stage: 'java',
+        status: 'running',
+        title: 'Подготовка Rosetta',
+        detail: 'macOS устанавливает поддержку x86_64',
+        progress: 18
+    });
+
+    const installRosetta = spawnSync('/usr/sbin/softwareupdate', ['--install-rosetta', '--agree-to-license'], {
+        encoding: 'utf8',
+        timeout: 1000 * 60 * 15
+    });
+
+    const combinedOutput = `${installRosetta.stdout || ''}\n${installRosetta.stderr || ''}`;
+    const rosettaInstalled = installRosetta.status === 0
+        || /already installed/i.test(combinedOutput)
+        || /not available/i.test(combinedOutput);
+
+    if (!rosettaInstalled) {
+        throw new Error(
+            'Не удалось автоматически установить Rosetta для запуска x86_64 Java. ' +
+            'Откройте Терминал и выполните: softwareupdate --install-rosetta --agree-to-license'
+        );
+    }
+}
+
+async function resolveLaunchProcess(javaExecutable, runtime, build, onStatus) {
     if (requiresTranslatedMacLaunch(runtime?.versionMeta)) {
         const currentInfo = inspectJavaArchitecture(javaExecutable, true);
         let resolvedJava = javaExecutable;
 
         if (currentInfo.arch !== 'x86_64') {
-            const fallback = getJavaCandidates().find((candidate) => inspectJavaArchitecture(candidate.value, true).arch === 'x86_64');
+            const requiredMajor = getRequiredJavaMajor(build, runtime?.versionMeta);
+            let fallback = getJavaCandidates(requiredMajor).find((candidate) => {
+                return candidate.majorVersion === requiredMajor
+                    && inspectJavaArchitecture(candidate.value, true).arch === 'x86_64';
+            });
+
+            if (!fallback?.value) {
+                onStatus?.({
+                    stage: 'java',
+                    status: 'running',
+                    title: 'Подготовка x86_64 Java',
+                    detail: `Старая версия Minecraft требует Java ${requiredMajor} под Rosetta`,
+                    progress: 10
+                });
+
+                await ensureRosettaAvailable(onStatus);
+                const managedX64 = await ensureManagedJavaRuntime(requiredMajor, onStatus, 'x64');
+                fallback = {
+                    value: managedX64.javaPath
+                };
+            }
+
             if (fallback?.value) {
                 resolvedJava = fallback.value;
             } else {
@@ -1842,6 +2313,29 @@ function resolveLaunchProcess(javaExecutable, runtime) {
         argsPrefix: [],
         displayExecutable: javaExecutable
     };
+}
+
+function focusMinecraftWindowOnMac() {
+    if (process.platform !== 'darwin') {
+        return;
+    }
+
+    const script = [
+        'tell application "System Events"',
+        'repeat with procName in {"java", "Minecraft", "launcherwrapper"}',
+        'try',
+        'set frontmost of first process whose name is procName to true',
+        'exit repeat',
+        'end try',
+        'end repeat',
+        'end tell'
+    ].join('\n');
+
+    const child = spawn('osascript', ['-e', script], {
+        stdio: 'ignore',
+        detached: true
+    });
+    child.unref();
 }
 
 async function getVersionManifest(versionId) {
@@ -2001,8 +2495,9 @@ async function launchGame(payload = null) {
         accountName,
         accountType
     });
-    const launchProcess = resolveLaunchProcess(javaExecutable, runtime);
+    const launchProcess = await resolveLaunchProcess(javaExecutable, runtime, build, (payload) => emitGameStatus(payload));
     const command = launchState.command;
+    ensureLegacyMacWindowedOptions(build);
     let launcherHidden = false;
     let launcherHiding = false;
     let gameOutputObserved = false;
@@ -2047,6 +2542,11 @@ async function launchGame(payload = null) {
         cwd: getBuildGameDir(build.id),
         stdio: ['ignore', 'pipe', 'pipe']
     });
+
+    if (isLegacyMacWindowedBuild(build)) {
+        setTimeout(() => focusMinecraftWindowOnMac(), 2500);
+        setTimeout(() => focusMinecraftWindowOnMac(), 5000);
+    }
 
     const hideTimer = setTimeout(() => {
         if (!launcherHidden && !launcherHiding && gameOutputObserved && settings.minimizeToTrayOnLaunch && mainWindow && !mainWindow.isDestroyed()) {
@@ -2856,6 +3356,19 @@ function getAdoptiumArchitecture() {
     return 'x64';
 }
 
+function getAdoptiumArchitectureForTarget(targetArch = process.arch) {
+    const normalized = normalizeJavaArchitecture(targetArch);
+    if (normalized === 'arm64') {
+        return 'aarch64';
+    }
+
+    if (normalized === 'x86') {
+        return 'x32';
+    }
+
+    return 'x64';
+}
+
 function getAdoptiumOs() {
     if (process.platform === 'darwin') {
         return 'mac';
@@ -2910,8 +3423,8 @@ function findJavaExecutableInDirectory(rootDir) {
     return '';
 }
 
-function readManagedJavaManifest(majorVersion) {
-    const manifestPath = getManagedJavaManifestPath(majorVersion);
+function readManagedJavaManifest(majorVersion, targetArch = process.arch) {
+    const manifestPath = getManagedJavaManifestPath(majorVersion, targetArch);
     if (!fs.existsSync(manifestPath)) {
         return null;
     }
@@ -3000,10 +3513,10 @@ async function extractArchive(archivePath, destinationDir) {
     throw new Error(`Неподдерживаемый формат архива Java: ${path.basename(archivePath)}`);
 }
 
-async function fetchManagedJavaPackage(majorVersion) {
+async function fetchManagedJavaPackage(majorVersion, targetArch = process.arch) {
     for (const imageType of ['jre', 'jdk']) {
         const url = new URL(`https://api.adoptium.net/v3/assets/latest/${encodeURIComponent(String(majorVersion))}/hotspot`);
-        url.searchParams.set('architecture', getAdoptiumArchitecture());
+        url.searchParams.set('architecture', getAdoptiumArchitectureForTarget(targetArch));
         url.searchParams.set('heap_size', 'normal');
         url.searchParams.set('image_type', imageType);
         url.searchParams.set('os', getAdoptiumOs());
@@ -3041,30 +3554,31 @@ async function fetchManagedJavaPackage(majorVersion) {
         }
     }
 
-    throw new Error(`Не удалось найти Java ${majorVersion} для ${process.platform}/${process.arch}.`);
+    throw new Error(`Не удалось найти Java ${majorVersion} для ${process.platform}/${normalizeJavaArchitecture(targetArch) || targetArch}.`);
 }
 
-async function ensureManagedJavaRuntime(majorVersion, onStatus) {
+async function ensureManagedJavaRuntime(majorVersion, onStatus, targetArch = process.arch) {
     ensureLauncherDataRoot();
+    const normalizedTargetArch = normalizeJavaArchitecture(targetArch) || targetArch || process.arch;
 
-    const cachedManifest = readManagedJavaManifest(majorVersion);
+    const cachedManifest = readManagedJavaManifest(majorVersion, normalizedTargetArch);
     if (cachedManifest) {
         return cachedManifest;
     }
 
-    const runtimeDir = getManagedJavaRuntimeDir(majorVersion);
+    const runtimeDir = getManagedJavaRuntimeDir(majorVersion, normalizedTargetArch);
     const downloadDir = path.join(runtimeDir, 'downloads');
     const extractDir = path.join(runtimeDir, 'runtime');
     fs.mkdirSync(downloadDir, { recursive: true });
 
-    const runtimePackage = await fetchManagedJavaPackage(majorVersion);
+    const runtimePackage = await fetchManagedJavaPackage(majorVersion, normalizedTargetArch);
     const archivePath = path.join(downloadDir, runtimePackage.name);
 
     onStatus?.({
         stage: 'java',
         status: 'running',
         title: 'Подготовка Java',
-        detail: `Java ${majorVersion} • ${runtimePackage.releaseName}`,
+        detail: `Java ${majorVersion} • ${runtimePackage.releaseName} • ${normalizedTargetArch}`,
         progress: 3
     });
 
@@ -3111,17 +3625,18 @@ async function ensureManagedJavaRuntime(majorVersion, onStatus) {
     }
 
     const manifest = {
-        id: getManagedJavaRuntimeId(majorVersion),
+        id: getManagedJavaRuntimeId(majorVersion, normalizedTargetArch),
+        targetArch: normalizedTargetArch,
         majorVersion: Number(majorVersion),
         javaPath,
         archiveName: runtimePackage.name,
         releaseName: runtimePackage.releaseName,
         platform: process.platform,
-        arch: process.arch,
+        arch: normalizedTargetArch,
         installedAt: new Date().toISOString()
     };
 
-    fs.writeFileSync(getManagedJavaManifestPath(majorVersion), JSON.stringify(manifest, null, 2));
+    fs.writeFileSync(getManagedJavaManifestPath(majorVersion, normalizedTargetArch), JSON.stringify(manifest, null, 2));
     emitJavaOptionsUpdate();
     return manifest;
 }
@@ -4179,6 +4694,22 @@ ipcMain.handle('builds:list', () => {
     const result = listBuildsState();
     setInCache('builds', result);
     return result;
+});
+
+ipcMain.handle('cache:load', (_event, key) => {
+    if (key !== 'app-cache') {
+        return null;
+    }
+
+    return readAppCache();
+});
+
+ipcMain.handle('cache:save', (_event, payload) => {
+    if (payload?.key !== 'app-cache') {
+        return false;
+    }
+
+    return writeAppCache(payload.value);
 });
 
 ipcMain.handle('builds:options', async () => {

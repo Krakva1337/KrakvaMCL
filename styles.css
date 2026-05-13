@@ -1298,8 +1298,8 @@ body.launcher-minimizing .toolbar {
 }
 
 .mods-filter-field {
-    min-width: 168px;
-    max-width: 220px;
+    min-width: 150px;
+    max-width: 200px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1402,23 +1402,23 @@ body.launcher-minimizing .toolbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    max-height: 36px;
-    gap: 10px;
-    padding: 10px 12px;
-    border-radius: 16px;
+    max-height: 32px;
+    gap: 5px;
+    padding: 5px 8px;
+    border-radius: 12px;
     background: rgba(255, 255, 255, 0.045);
     border: 1px solid rgba(255, 255, 255, 0.1);
     min-width: 0;
-    max-width: 320px;
-    flex: 1 1 220px;
+    max-width: 260px;
+    flex: 1 1 180px;
 }
 
 .mods-search-summary--inline {
     min-width: 0;
-    max-width: 320px;
-    min-height: 30px;
-    padding: 0 8px;
-    border-radius: 12px;
+    max-width: 260px;
+    min-height: 26px;
+    padding: 0 5px;
+    border-radius: 10px;
     align-self: stretch;
 }
 
@@ -3221,8 +3221,8 @@ body.dark-menus .mods-filter-select {
 }
 
 .mods-filter-field {
-    min-width: 228px;
-    max-width: 268px;
+    min-width: 200px;
+    max-width: 200px;
     min-height: 44px;
     padding: 0 14px;
     gap: 12px;
@@ -3690,9 +3690,9 @@ body.launcher-opening .sidebar {
 }
 
 .mods-filter-field {
-    flex: 0 0 260px;
-    min-width: 260px;
-    max-width: 260px;
+    flex: 0 0 200px;
+    min-width: 200px;
+    max-width: 200px;
 }
 
 .mods-filter-select {
@@ -3739,7 +3739,7 @@ body.platform-win .mods-filter-field {
 
 .mods-topbar > div:first-child {
     flex: 0 0 146px;
-    max-width: 146px;
+    max-width: 138px;
 }
 
 #mods-source-switch,
@@ -3758,15 +3758,18 @@ body.platform-win .mods-filter-field {
 
 .mods-search-summary,
 .mods-search-summary--inline {
-    flex: 1 1 100px;
-    min-width: 100px;
+    flex: 0 0 160px;
+    width: 160px;
+    min-width: 0;
+    max-width: 160px;
+    margin-right: 5px;
 }
 
 .mods-search-summary--inline {
     justify-content: flex-start;
-    min-height: 46px;
-    padding: 0 16px;
-    border-radius: 18px;
+    min-height: 32px;
+    padding: 0 5px;
+    border-radius: 10px;
     background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.025)),
         rgba(255, 255, 255, 0.03);
@@ -3778,18 +3781,18 @@ body.platform-win .mods-filter-field {
 #mod-manager-search-status {
     width: 100%;
     text-align: left;
-    font-size: 12px;
+    font-size: 10px;
     color: rgba(225, 233, 247, 0.84);
     font-weight: 600;
 }
 
 .mods-filter-field {
-    flex: 0 0 212px;
-    min-width: 212px;
-    max-width: 212px;
-    min-height: 46px;
-    padding: 8px 14px;
-    border-radius: 18px;
+    flex: 0 0 170px;
+    min-width: 170px;
+    max-width: 210px;
+    min-height: 40px;
+    padding: 6px 10px;
+    border-radius: 16px;
     position: relative;
     border-color: rgba(120, 168, 238, 0.22);
     background:
@@ -3801,16 +3804,16 @@ body.platform-win .mods-filter-field {
 }
 
 .mods-filter-select {
-    min-height: 40px;
-    font-size: 15px;
+    min-height: 34px;
+    font-size: 13px;
 }
 
 .mods-type-toggle {
     width: 100%;
-    min-height: 44px;
+    min-height: 36px;
     justify-content: space-between;
     padding: 0 14px;
-    border-radius: 16px;
+    border-radius: 14px;
     background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.025)),
         rgba(14, 18, 27, 0.62);
@@ -3829,8 +3832,8 @@ body.platform-win .mods-filter-field {
 
 .launcher-select-trigger {
     width: 100%;
-    min-height: 44px;
-    border-radius: 18px;
+    min-height: 36px;
+    border-radius: 16px;
     border: 1px solid rgba(255, 255, 255, 0.08);
     background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.025)),
@@ -3839,9 +3842,9 @@ body.platform-win .mods-filter-field {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 0 16px;
-    font-size: 15px;
+    gap: 10px;
+    padding: 0 14px;
+    font-size: 13px;
     font-weight: 700;
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.045),
@@ -3873,7 +3876,7 @@ body.platform-win .mods-filter-field {
 
 .launcher-select-trigger-icon {
     flex: 0 0 auto;
-    font-size: 18px;
+    font-size: 16px;
     color: rgba(202, 214, 236, 0.7);
     transform: translateY(-1px);
     transition: transform 0.18s ease, color 0.18s ease;
@@ -3886,12 +3889,12 @@ body.platform-win .mods-filter-field {
 
 .launcher-select-panel {
     position: absolute;
-    top: calc(100% + 12px);
+    top: calc(100% + 8px);
     left: 0;
     right: 0;
     z-index: 20;
-    padding: 10px;
-    border-radius: 24px;
+    padding: 8px;
+    border-radius: 20px;
     border: 1px solid rgba(110, 150, 222, 0.22);
     background:
         linear-gradient(180deg, rgba(27, 40, 62, 0.94), rgba(15, 20, 30, 0.98) 26%),
@@ -3903,7 +3906,7 @@ body.platform-win .mods-filter-field {
 }
 
 #mods-source-switch .launcher-select-panel {
-    width: max(100%, 360px);
+    width: max(100%, 320px);
     right: auto;
 }
 
@@ -3912,7 +3915,7 @@ body.platform-win .mods-filter-field {
 }
 
 .launcher-select-list.custom-list {
-    gap: 6px;
+    gap: 5px;
     padding: 0;
     border: 0;
     background: transparent;
@@ -3924,11 +3927,12 @@ body.platform-win .mods-filter-field {
 }
 
 .launcher-select-list .custom-list-item {
-    border-radius: 18px;
-    padding: 14px 16px;
+    border-radius: 15px;
+    padding: 11px 14px;
     background: rgba(255, 255, 255, 0.035);
     border: 1px solid transparent;
     color: rgba(235, 241, 251, 0.9);
+    font-size: 13px;
     transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
 }
 
@@ -4825,4 +4829,346 @@ body.dark-menus .custom-list::-webkit-scrollbar-thumb {
 
 body.dark-menus .custom-list::-webkit-scrollbar-thumb:hover {
     background: rgba(70, 120, 180, 0.36);
+}
+
+/* ====================================================
+   LAYOUT & DROPDOWN FIXES v2
+   ==================================================== */
+
+/* -------------------------------------------------------
+   STACKING CONTEXT: всё содержимое карточек на z-index 0,
+   дропдауны — выше всего
+   ------------------------------------------------------- */
+.mods-card,
+.panel-card {
+    position: relative;
+    /* НЕ overflow:hidden — иначе дропдауны обрежутся */
+}
+
+.mods-results {
+    position: relative;
+    z-index: 0;
+}
+
+.mods-result-card {
+    position: relative;
+    z-index: 0;
+}
+
+/* manager-cover-check: отключаем overflow:hidden на toggle,
+   чтобы значок выходил за угол обложки, но z-index низкий */
+.manager-cover-toggle {
+    overflow: visible;
+    border-radius: 18px;
+}
+
+.manager-cover-check {
+    z-index: 1;
+}
+
+/* topbar container должен допускать overflow снаружи */
+.mods-topbar {
+    overflow: visible !important;
+    position: relative;
+    z-index: 5;
+}
+
+/* -------------------------------------------------------
+   LAUNCHER-SELECT (кастомный дропдаун через JS):
+   launcher-select-shell — stacking context,
+   launcher-select-panel — абсолютно позиционирован поверх
+   ------------------------------------------------------- */
+.launcher-select-shell {
+    position: relative;
+    z-index: 20;
+}
+
+.launcher-select-panel {
+    z-index: 200;
+    background:
+        linear-gradient(180deg, rgba(22, 32, 48, 0.98), rgba(12, 17, 26, 0.99)) !important;
+    border: 1px solid rgba(110, 150, 222, 0.28) !important;
+    backdrop-filter: blur(22px) !important;
+    -webkit-backdrop-filter: blur(22px) !important;
+    box-shadow:
+        0 32px 72px rgba(0, 0, 0, 0.54),
+        0 0 0 1px rgba(255, 255, 255, 0.03) inset !important;
+    max-height: 280px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.launcher-select-list.custom-list {
+    overflow-y: auto;
+    max-height: 100%;
+    flex: 1 1 auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(var(--accent-rgb), 0.32) transparent;
+}
+
+#mods-source-switch .launcher-select-panel {
+    max-height: 280px;
+}
+
+/* активные айтемы не должны выходить за рамки списка */
+.launcher-select-list .custom-list-item {
+    overflow: hidden;
+    position: relative;
+}
+
+/* -------------------------------------------------------
+   MODRINTH: #mods-source-switch — 3 колонки:
+   [status-summary] [filter-field] [folder-btn]
+   ------------------------------------------------------- */
+#mods-source-switch {
+    display: grid !important;
+    grid-template-columns: minmax(0, 132px) minmax(196px, 1fr) 40px !important;
+    align-items: center !important;
+    gap: 5px !important;
+    /* НЕ position:relative — дропдаун должен выходить наружу */
+    position: static !important;
+    overflow: visible !important;
+    /* Стиль подложки */
+    padding: 8px 10px !important;
+    border-radius: 20px !important;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.025)),
+        rgba(11, 15, 23, 0.6) !important;
+    border: 1px solid rgba(255, 255, 255, 0.09) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+/* filter-field внутри mods-source-switch занимает ровно свою колонку */
+#mods-source-switch .mods-filter-field {
+    flex: none !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    width: 100% !important;
+    grid-column: auto !important;
+}
+
+#mods-source-switch .mods-search-summary,
+#mods-source-switch .mods-search-summary--inline,
+.content-panel[data-panel="mod-manager"] .mods-search-summary,
+.content-panel[data-panel="mod-manager"] .mods-search-summary--inline {
+    width: 132px !important;
+    max-width: 132px !important;
+    flex: 0 0 132px !important;
+    margin-right: 0 !important;
+}
+
+/* -------------------------------------------------------
+   МЕНЕДЖЕР: .mods-source-switch — 3 прямых ребёнка:
+   [status-summary] [mods-filter-field] [folder-btn]
+   Нужно 3 колонки, не 2!
+   ------------------------------------------------------- */
+.content-panel[data-panel="mod-manager"] .mods-source-switch {
+    display: grid !important;
+    grid-template-columns: minmax(120px, 132px) minmax(210px, 1fr) 44px !important;
+    align-items: center !important;
+    gap: 8px !important;
+    position: static !important;
+    overflow: visible !important;
+    padding: 10px 12px !important;
+    border-radius: 22px !important;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.025)),
+        rgba(11, 15, 23, 0.6) !important;
+    border: 1px solid rgba(255, 255, 255, 0.09) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+/* mods-filter-field в менеджере: содержит label + mods-type-toggle */
+.content-panel[data-panel="mod-manager"] .mods-filter-field {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 8px !important;
+    flex: none !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    min-height: 44px !important;
+    padding: 0 10px !important;
+    border-radius: 18px !important;
+    white-space: nowrap !important;
+    justify-self: stretch !important;
+    overflow: hidden !important;
+}
+
+/* mods-type-toggle в менеджере не занимает всю ширину */
+.content-panel[data-panel="mod-manager"] .mods-type-toggle {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    min-height: 36px !important;
+    flex: 1 1 auto !important;
+    padding: 0 14px !important;
+    border-radius: 16px !important;
+}
+
+/* folder-btn в менеджере */
+.content-panel[data-panel="mod-manager"] .mods-folder-btn {
+    flex: 0 0 44px !important;
+    width: 44px !important;
+    min-width: 44px !important;
+    height: 44px !important;
+    min-height: 44px !important;
+    justify-self: end;
+}
+
+.content-panel[data-panel="mod-manager"] .mods-search-summary,
+.content-panel[data-panel="mod-manager"] .mods-search-summary--inline {
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+    margin-right: 0 !important;
+}
+
+.content-panel[data-panel="mod-manager"] .mods-search-summary--inline {
+    min-height: 44px !important;
+    padding: 0 12px !important;
+    border-radius: 18px !important;
+    display: flex !important;
+    align-items: center !important;
+}
+
+.content-panel[data-panel="mod-manager"] #mod-manager-search-status {
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.01em;
+}
+
+.content-panel[data-panel="mod-manager"] .mods-filter-label {
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    flex: 0 0 auto !important;
+}
+
+/* -------------------------------------------------------
+   mods-topbar первый child: стабильная ширина
+   ------------------------------------------------------- */
+.mods-topbar > div:first-child {
+    flex: 0 0 auto !important;
+    max-width: 138px !important;
+    min-width: 0 !important;
+    overflow: visible !important;
+}
+
+/* =====================================================
+   NUCLEAR FIX — SUMMARY COMPACT + LIST WIDTH
+   Перебивает ВСЕ предыдущие правила
+   ===================================================== */
+
+/* --- MODRINTH: #mods-source-switch --- */
+/* Контейнер: жёсткая сетка 3 колонки */
+#mods-source-switch {
+    display: grid !important;
+    grid-template-columns: auto 1fr 40px !important;
+    align-items: center !important;
+    gap: 5px !important;
+    padding: 6px 8px !important;
+    overflow: visible !important;
+    position: static !important;
+}
+
+/* Summary — только под свой контент, не растягиваться */
+#mods-source-switch > .mods-search-summary,
+#mods-source-switch > .mods-search-summary--inline {
+    width: auto !important;
+    max-width: 130px !important;
+    min-width: 0 !important;
+    flex: 0 0 auto !important;
+    padding: 4px 6px !important;
+    font-size: 11px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+}
+
+/* Summary текст — обрезать если не влезает */
+#mods-source-switch .mods-search-status {
+    font-size: 11px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    max-width: 110px !important;
+}
+
+/* Filter field — занимает оставшееся место */
+#mods-source-switch > .mods-filter-field {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    flex: none !important;
+}
+
+/* Dropdown список — не шире своего filter-field */
+#mods-source-switch .launcher-select-panel {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    right: 0 !important;
+    left: 0 !important;
+    box-sizing: border-box !important;
+}
+
+/* Folder btn */
+#mods-source-switch > .mods-folder-btn {
+    width: 40px !important;
+    min-width: 40px !important;
+    flex: 0 0 40px !important;
+}
+
+/* --- МЕНЕДЖЕР: .mods-source-switch --- */
+.content-panel[data-panel="mod-manager"] .mods-source-switch {
+    display: grid !important;
+    grid-template-columns: auto 1fr 44px !important;
+    align-items: center !important;
+    gap: 5px !important;
+    padding: 8px 10px !important;
+    overflow: visible !important;
+    position: static !important;
+}
+
+.content-panel[data-panel="mod-manager"] .mods-source-switch > .mods-search-summary,
+.content-panel[data-panel="mod-manager"] .mods-source-switch > .mods-search-summary--inline {
+    width: auto !important;
+    max-width: 130px !important;
+    min-width: 0 !important;
+    flex: 0 0 auto !important;
+    padding: 4px 6px !important;
+    font-size: 11px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+}
+
+.content-panel[data-panel="mod-manager"] .mods-source-switch .mods-search-status {
+    font-size: 11px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    max-width: 110px !important;
+}
+
+.content-panel[data-panel="mod-manager"] .mods-source-switch > .mods-filter-field {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    flex: none !important;
+}
+
+.content-panel[data-panel="mod-manager"] .mods-source-switch > .mods-folder-btn {
+    width: 44px !important;
+    min-width: 44px !important;
+    flex: 0 0 44px !important;
+}
+
+/* Topbar first child — не ограничивать */
+.mods-topbar > div:first-child {
+    max-width: none !important;
+    flex: 0 0 auto !important;
 }

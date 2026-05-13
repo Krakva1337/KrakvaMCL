@@ -4,6 +4,8 @@ const DEFAULT_LOADER = 'vanilla';
 const DEFAULT_BUILD_ID = 'Standart';
 const ACCOUNTS_STORAGE_KEY = 'krakvamcl.accounts';
 const MODS_CACHE_STORAGE_KEY = 'krakvamcl.mods.cache';
+const APP_STATE_CACHE_STORAGE_KEY = 'krakvamcl.app-state';
+const PRELOADED_SESSION_KEY = 'krakvamcl.preloaded-data';
 const DEFAULT_ACCOUNT_NAME = 'Krakva_';
 const MODS_PAGE_SIZE = 12;
 const INSTALLED_MODS_PAGE_SIZE = 12;
@@ -87,6 +89,139 @@ const state = {
 };
 
 let dependencyPromptResolver = null;
+
+function cacheAppStateSnapshot() {
+    try {
+        const activeBuild = getActiveBuild();
+        localStorage.setItem(APP_STATE_CACHE_STORAGE_KEY, JSON.stringify({
+            timestamp: Date.now(),
+            activeBuildId: state.activeBuildId || DEFAULT_BUILD_ID,
+            builds: Array.isArray(state.builds)
+                ? state.builds.map((build) => ({
+                    id: build.id,
+                    name: build.name,
+                    minecraftVersion: build.minecraftVersion,
+                    loader: build.loader,
+                    isDefault: build.isDefault
+                }))
+                : [],
+            activeBuild: activeBuild ? {
+                id: activeBuild.id,
+                name: activeBuild.name,
+                minecraftVersion: activeBuild.minecraftVersion,
+                loader: activeBuild.loader,
+                isDefault: activeBuild.isDefault
+            } : null
+        }));
+    } catch (error) {
+        console.warn('Unable to persist app state cache', error);
+    }
+}
+
+function resolveActiveBuildId(builds = [], preferredBuildId = DEFAULT_BUILD_ID) {
+    const existingBuild = Array.isArray(builds)
+        ? builds.find((build) => build.id === preferredBuildId)
+        : null;
+
+    return existingBuild?.id || builds[0]?.id || DEFAULT_BUILD_ID;
+}
+
+function applyBuildsStateSnapshot(buildsState = null, preferredBuildId = DEFAULT_BUILD_ID) {
+    const nextBuilds = Array.isArray(buildsState?.builds) ? buildsState.builds : [];
+    if (!nextBuilds.length) {
+        return false;
+    }
+
+    state.builds = nextBuilds;
+    state.activeBuildId = resolveActiveBuildId(nextBuilds, buildsState?.activeBuildId || preferredBuildId);
+    state.settings.activeBuildId = state.activeBuildId;
+    return true;
+}
+
+function restoreAppStateSnapshot() {
+    try {
+        const raw = localStorage.getItem(APP_STATE_CACHE_STORAGE_KEY);
+        if (!raw) {
+            return false;
+        }
+
+        const parsed = JSON.parse(raw);
+        const builds = Array.isArray(parsed?.builds) ? parsed.builds : [];
+        if (!builds.length) {
+            return false;
+        }
+
+        return applyBuildsStateSnapshot({
+            builds,
+            activeBuildId: parsed.activeBuildId || parsed.activeBuild?.id || DEFAULT_BUILD_ID
+        }, parsed.activeBuildId || parsed.activeBuild?.id || DEFAULT_BUILD_ID);
+    } catch {
+        return false;
+    }
+}
+
+function renderCachedLauncherState() {
+    updateToolbarTitle();
+    updatePlayPanel();
+}
+
+function readSessionPreloadedData() {
+    try {
+        const raw = sessionStorage.getItem(PRELOADED_SESSION_KEY);
+        if (!raw) {
+            return null;
+        }
+
+        const parsed = JSON.parse(raw);
+        return parsed?.data && typeof parsed.data === 'object' ? parsed.data : null;
+    } catch {
+        return null;
+    }
+}
+
+async function readPersistentPreloadedData() {
+    if (!window.launcherCache?.load) {
+        return null;
+    }
+
+    try {
+        const cached = await window.launcherCache.load('app-cache');
+        if (!cached || typeof cached !== 'object') {
+            return null;
+        }
+
+        return {
+            buildsState: cacheBuildsStateFromDiskCache(cached),
+            buildOptions: cached.buildOptions || null,
+            filters: cached.modFilters || null,
+            accounts: cacheAccountsStateFromDiskCache(cached)
+        };
+    } catch {
+        return null;
+    }
+}
+
+function cacheBuildsStateFromDiskCache(cached = {}) {
+    if (!Array.isArray(cached.builds) || !cached.builds.length) {
+        return null;
+    }
+
+    return {
+        builds: cached.builds,
+        activeBuildId: cached.activeBuildId || DEFAULT_BUILD_ID
+    };
+}
+
+function cacheAccountsStateFromDiskCache(cached = {}) {
+    if (!Array.isArray(cached.accounts) || !cached.accounts.length) {
+        return null;
+    }
+
+    return {
+        accounts: cached.accounts,
+        activeAccountId: cached.accounts[0]?.id || null
+    };
+}
 
 const translations = {
     Русский: {
@@ -548,7 +683,7 @@ function cacheRefs() {
     refs.searchToggle = document.querySelector('.search-toggle');
     refs.searchInput = document.getElementById('app-search');
     refs.searchClose = document.querySelector('.search-close');
-    refs.controlButtons = Array.from(document.querySelectorAll('.control-btn'));
+    refs.controlButtons = Array.from(document.querySelectorAll('.control > .control-btn'));
     refs.searchStatus = document.getElementById('mods-search-status');
     refs.modsResults = document.getElementById('mods-results');
     refs.modsPagination = document.getElementById('mods-pagination');
@@ -681,12 +816,22 @@ function bindSystemInfoEvents() {
 
 async function initialize() {
     subscribeToGameStatus();
-    // Try to use pre-loaded data from splash screen first
-    const preloadedData = window.__krakvamclPreloadedData || {};
+    const sessionPreloadedData = readSessionPreloadedData();
+    const persistentPreloadedData = await readPersistentPreloadedData();
+    const preloadedData = sessionPreloadedData || persistentPreloadedData || window.__krakvamclPreloadedData || {};
+
+    const restoredFromLocalCache = restoreAppStateSnapshot();
+    if (restoredFromLocalCache) {
+        renderCachedLauncherState();
+    }
     let settings, systemInfo, buildsState, filters, buildOptions, installedState, gameState, preloadedAccounts;
 
+    if (preloadedData?.buildsState?.builds?.length) {
+        applyBuildsStateSnapshot(preloadedData.buildsState, preloadedData.buildsState.activeBuildId || DEFAULT_BUILD_ID);
+        renderCachedLauncherState();
+    }
+
     if (preloadedData.settings && preloadedData.systemInfo && preloadedData.buildsState) {
-        // Use pre-loaded data from splash
         settings = preloadedData.settings;
         systemInfo = preloadedData.systemInfo;
         buildsState = preloadedData.buildsState;
@@ -696,7 +841,6 @@ async function initialize() {
         gameState = preloadedData.gameState;
         preloadedAccounts = preloadedData.accounts;
     } else {
-        // Load data now (fallback if splash didn't pre-load)
         const loadResults = await Promise.all([
             window.launcherSettings.load(),
             window.launcherSettings.getSystemInfo(),
@@ -714,25 +858,7 @@ async function initialize() {
     state.updateInfo.currentVersion = systemInfo?.launcherVersion || state.updateInfo.currentVersion;
     
 
-    state.builds = Array.isArray(buildsState?.builds)
-    ? buildsState.builds
-    : [];
-
-    const preferredBuildId =
-        buildsState?.activeBuildId ||
-        state.settings.activeBuildId ||
-        DEFAULT_BUILD_ID;
-
-    const existingBuild = state.builds.find(b => b.id === preferredBuildId);
-
-    state.activeBuildId = existingBuild
-        ? existingBuild.id
-        : state.builds[0]?.id || DEFAULT_BUILD_ID;
-
-    state.settings.activeBuildId = state.activeBuildId;
-
-
-    state.activeBuildId = buildsState?.activeBuildId || state.settings.activeBuildId || DEFAULT_BUILD_ID;
+    applyBuildsStateSnapshot(buildsState, buildsState?.activeBuildId || state.settings.activeBuildId || DEFAULT_BUILD_ID);
     state.modFilters = Array.isArray(filters) ? filters : [];
     state.buildOptions = {
         gameVersions: Array.isArray(buildOptions?.gameVersions) && buildOptions.gameVersions.length ? buildOptions.gameVersions : [DEFAULT_GAME_VERSION],
@@ -782,6 +908,8 @@ async function initialize() {
     updateNavIndicator();
     setSaveState('saved');
     syncDiscordPresence();
+    cacheAppStateSnapshot();
+    sessionStorage.removeItem(PRELOADED_SESSION_KEY);
 
     if (state.settings.githubToken) {
         checkForUpdates(true)
@@ -2245,8 +2373,11 @@ function updateToolbarTitle() {
 
 function updatePlayPanel() {
     const activeBuild = getActiveBuild();
-    document.getElementById('play-panel-title').textContent = `${getBuildDisplayName(activeBuild)} • ${formatLoader(activeBuild.loader)} ${activeBuild.minecraftVersion}`;
-    refs.playSelectBtn.textContent = `${getBuildDisplayName(activeBuild)} • ${formatLoader(activeBuild.loader)} ${activeBuild.minecraftVersion}`;
+    const versionStr = activeBuild.minecraftVersion || DEFAULT_GAME_VERSION;
+    const loaderStr = formatLoader(activeBuild.loader);
+    const buildStr = getBuildDisplayName(activeBuild);
+    document.getElementById('play-panel-title').textContent = `${buildStr} • ${loaderStr} ${versionStr}`;
+    refs.playSelectBtn.textContent = `${buildStr} • ${loaderStr} ${versionStr}`;
     document.getElementById('play-panel-copy').textContent = `${t('play_copy')} ${getActiveAccount().name}`;
     renderLoaderShowcase();
 }
@@ -3472,9 +3603,7 @@ async function saveBuildFromModal() {
 
 async function refreshBuildsState() {
     const buildsState = await window.launcherBuilds.list();
-    state.builds = Array.isArray(buildsState?.builds) ? buildsState.builds : [];
-    state.activeBuildId = buildsState?.activeBuildId || state.activeBuildId;
-    state.settings.activeBuildId = state.activeBuildId;
+    applyBuildsStateSnapshot(buildsState, buildsState?.activeBuildId || state.activeBuildId);
     await refreshInstalledMods();
     renderPlayFilters();
     renderBuilds();
@@ -3484,6 +3613,7 @@ async function refreshBuildsState() {
     updatePlayPanel();
     updateLaunchUi();
     syncDiscordPresence();
+    cacheAppStateSnapshot();
 
     if (state.activeView === 'mods') {
         const activeBuild = getActiveBuild();

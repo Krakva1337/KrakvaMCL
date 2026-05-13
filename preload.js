@@ -146,3 +146,12 @@ contextBridge.exposeInMainWorld('launcherPresence', {
         return ipcRenderer.invoke('presence:update', payload);
     }
 });
+
+contextBridge.exposeInMainWorld('launcherCache', {
+    load(key) {
+        return ipcRenderer.invoke('cache:load', key);
+    },
+    save(key, value) {
+        return ipcRenderer.invoke('cache:save', { key, value });
+    }
+});
