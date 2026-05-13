@@ -1110,7 +1110,11 @@ body.launcher-minimizing .toolbar {
 .toolbar .control-btn,
 .toolbar .search,
 .toolbar .search input,
-.toolbar .control {
+.toolbar .control,
+.toolbar .toolbar-selection,
+.toolbar .toolbar-selection *,
+.toolbar .toolbar-action-btn,
+.toolbar .toolbar-action-btn * {
     -webkit-app-region: no-drag;
 }
 
@@ -1168,6 +1172,59 @@ body.launcher-minimizing .toolbar {
     cursor: default;
 }
 
+.toolbar-selection {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+    margin-right: 10px;
+    padding: 6px 8px 6px 12px;
+    border-radius: 18px;
+    border: 1px solid rgba(var(--accent-rgb), 0.18);
+    background:
+        radial-gradient(circle at top left, rgba(var(--accent-rgb), 0.14), transparent 45%),
+        rgba(255, 255, 255, 0.06);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    position: relative;
+    z-index: 3;
+    flex: 0 0 auto;
+    pointer-events: auto;
+}
+
+.toolbar-selection[hidden] {
+    display: none;
+}
+
+.toolbar-selection-text {
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.toolbar-selection-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+}
+
+.toolbar-action-btn {
+    width: 38px;
+    min-width: 38px;
+    height: 38px;
+    min-height: 38px;
+    padding: 0;
+    border-radius: 14px;
+    position: relative;
+    z-index: 4;
+}
+
+.toolbar-action-btn img {
+    width: 16px;
+    height: 16px;
+}
+
 .search-toggle,
 .search,
 .control-btn {
@@ -1190,10 +1247,11 @@ body.launcher-minimizing .toolbar {
 }
 
 .mods-topbar {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
+    display: flex;
     align-items: center;
-    gap: 8px;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: nowrap;
 }
 
 .mods-topbar > div:first-child {
@@ -1201,6 +1259,7 @@ body.launcher-minimizing .toolbar {
     align-items: center;
     gap: 8px;
     min-width: 0;
+    flex: 0 0 auto;
 }
 
 .mods-topbar .panel-title {
@@ -1219,28 +1278,28 @@ body.launcher-minimizing .toolbar {
 }
 
 .mods-source-switch {
-    display: grid;
+    display: flex;
     align-items: center;
-    gap: 8px;
-    justify-content: stretch;
+    gap: 10px;
+    justify-content: flex-end;
     min-width: 0;
-    width: 100%;
+    flex: 1 1 auto;
+    width: auto;
     max-width: none;
-    grid-auto-flow: column;
-    grid-auto-columns: max-content;
+    flex-wrap: nowrap;
 }
 
 #mods-source-switch {
-    grid-template-columns: minmax(0, 1fr) minmax(108px, 126px) auto;
+    display: flex;
 }
 
 .content-panel[data-panel="mod-manager"] .mods-source-switch {
-    grid-template-columns: minmax(0, 1fr) auto;
+    display: flex;
 }
 
 .mods-filter-field {
-    min-width: 108px;
-    max-width: 126px;
+    min-width: 168px;
+    max-width: 220px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1249,6 +1308,13 @@ body.launcher-minimizing .toolbar {
     border-radius: 14px;
     border: 1px solid rgba(255, 255, 255, 0.12);
     background: rgba(255, 255, 255, 0.07);
+}
+
+.mods-filter-field.has-custom-select {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: 6px;
 }
 
 .mods-filter-label {
@@ -1343,12 +1409,13 @@ body.launcher-minimizing .toolbar {
     background: rgba(255, 255, 255, 0.045);
     border: 1px solid rgba(255, 255, 255, 0.1);
     min-width: 0;
-    max-width: 100px;
+    max-width: 320px;
+    flex: 1 1 220px;
 }
 
 .mods-search-summary--inline {
     min-width: 0;
-    max-width: 88px;
+    max-width: 320px;
     min-height: 30px;
     padding: 0 8px;
     border-radius: 12px;
@@ -1356,7 +1423,7 @@ body.launcher-minimizing .toolbar {
 }
 
 .mods-search-summary--inline .mods-search-status {
-    font-size: 9px;
+    font-size: 11px;
 }
 
 #mods-source-switch .mods-search-label,
@@ -1374,12 +1441,16 @@ body.launcher-minimizing .toolbar {
 
 .mods-search-status {
     color: rgba(255, 255, 255, 0.6);
-    font-size: 10px;
-    text-align: right;
+    font-size: 12px;
+    text-align: left;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     min-width: 0;
+}
+
+#mods-source-switch .mods-filter-field {
+    flex: 0 0 190px;
 }
 
 .mods-results {
@@ -3593,13 +3664,18 @@ body.launcher-opening .sidebar {
 .mods-source-switch,
 #mods-source-switch,
 .content-panel[data-panel="mod-manager"] .mods-source-switch {
-    display: flex;
     flex: 1 1 auto;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 10px;
     min-width: 0;
     overflow: visible;
+}
+
+#mods-source-switch,
+.content-panel[data-panel="mod-manager"] .mods-source-switch {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 212px 44px;
+    align-items: center;
+    justify-content: stretch;
+    gap: 8px;
 }
 
 .mods-search-summary,
@@ -3666,10 +3742,18 @@ body.platform-win .mods-filter-field {
     max-width: 146px;
 }
 
-.mods-source-switch,
 #mods-source-switch,
 .content-panel[data-panel="mod-manager"] .mods-source-switch {
-    gap: 8px;
+    position: relative;
+    padding: 10px 12px;
+    border-radius: 22px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.025)),
+        rgba(11, 15, 23, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.05),
+        0 16px 32px rgba(0, 0, 0, 0.14);
 }
 
 .mods-search-summary,
@@ -3680,30 +3764,186 @@ body.platform-win .mods-filter-field {
 
 .mods-search-summary--inline {
     justify-content: flex-start;
-    min-height: 42px;
-    padding: 0 12px;
+    min-height: 46px;
+    padding: 0 16px;
+    border-radius: 18px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.025)),
+        rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .mods-search-status,
 #mod-manager-search-status {
     width: 100%;
     text-align: left;
-    font-size: 11px;
-    color: rgba(225, 233, 247, 0.78);
+    font-size: 12px;
+    color: rgba(225, 233, 247, 0.84);
+    font-weight: 600;
 }
 
 .mods-filter-field {
     flex: 0 0 212px;
     min-width: 212px;
     max-width: 212px;
-    min-height: 42px;
-    padding: 0 12px;
-    border-radius: 15px;
+    min-height: 46px;
+    padding: 8px 14px;
+    border-radius: 18px;
+    position: relative;
+    border-color: rgba(120, 168, 238, 0.22);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.03)),
+        rgba(14, 18, 27, 0.72);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.04),
+        0 12px 28px rgba(0, 0, 0, 0.12);
 }
 
 .mods-filter-select {
     min-height: 40px;
     font-size: 15px;
+}
+
+.mods-type-toggle {
+    width: 100%;
+    min-height: 44px;
+    justify-content: space-between;
+    padding: 0 14px;
+    border-radius: 16px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.025)),
+        rgba(14, 18, 27, 0.62);
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+.launcher-select-native {
+    display: none !important;
+}
+
+.launcher-select-shell {
+    position: relative;
+    width: 100%;
+}
+
+.launcher-select-trigger {
+    width: 100%;
+    min-height: 44px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.025)),
+        rgba(16, 21, 31, 0.92);
+    color: rgba(244, 247, 255, 0.94);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 16px;
+    font-size: 15px;
+    font-weight: 700;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.045),
+        0 8px 20px rgba(0, 0, 0, 0.12);
+}
+
+.launcher-select-trigger:hover {
+    border-color: rgba(var(--accent-rgb), 0.34);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.04)),
+        rgba(21, 27, 39, 0.96);
+}
+
+.launcher-select-shell.is-open .launcher-select-trigger {
+    border-color: rgba(255, 176, 36, 0.78);
+    box-shadow:
+        0 0 0 4px rgba(255, 176, 36, 0.16),
+        0 14px 28px rgba(0, 0, 0, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.launcher-select-trigger-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+}
+
+.launcher-select-trigger-icon {
+    flex: 0 0 auto;
+    font-size: 18px;
+    color: rgba(202, 214, 236, 0.7);
+    transform: translateY(-1px);
+    transition: transform 0.18s ease, color 0.18s ease;
+}
+
+.launcher-select-shell.is-open .launcher-select-trigger-icon {
+    transform: rotate(180deg);
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.launcher-select-panel {
+    position: absolute;
+    top: calc(100% + 12px);
+    left: 0;
+    right: 0;
+    z-index: 20;
+    padding: 10px;
+    border-radius: 24px;
+    border: 1px solid rgba(110, 150, 222, 0.22);
+    background:
+        linear-gradient(180deg, rgba(27, 40, 62, 0.94), rgba(15, 20, 30, 0.98) 26%),
+        rgba(14, 18, 26, 0.98);
+    box-shadow:
+        0 28px 60px rgba(0, 0, 0, 0.34),
+        0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+    backdrop-filter: blur(22px);
+}
+
+#mods-source-switch .launcher-select-panel {
+    width: max(100%, 360px);
+    right: auto;
+}
+
+.launcher-select-panel[hidden] {
+    display: none !important;
+}
+
+.launcher-select-list.custom-list {
+    gap: 6px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    max-height: 260px;
+}
+
+#mods-source-switch .launcher-select-list.custom-list {
+    max-height: 360px;
+}
+
+.launcher-select-list .custom-list-item {
+    border-radius: 18px;
+    padding: 14px 16px;
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid transparent;
+    color: rgba(235, 241, 251, 0.9);
+    transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.launcher-select-list .custom-list-item:hover {
+    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(108, 148, 220, 0.16);
+}
+
+.launcher-select-list .custom-list-item.active {
+    background:
+        linear-gradient(135deg, rgba(47, 82, 132, 0.72), rgba(33, 49, 74, 0.68)),
+        rgba(255, 255, 255, 0.06);
+    border-color: rgba(88, 140, 220, 0.36);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .mods-folder-btn {
@@ -3717,6 +3957,13 @@ body.platform-win .mods-filter-field {
 .mods-result-card {
     padding: 18px 18px 16px;
     border-radius: 22px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.035)),
+        rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.04),
+        0 18px 34px rgba(0, 0, 0, 0.1);
 }
 
 .mods-result-body {
@@ -3739,6 +3986,51 @@ body.platform-win .mods-filter-field {
     align-self: start;
     justify-content: flex-end;
     gap: 10px;
+}
+
+.manager-batch-bar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    margin: 8px 0 18px;
+    padding: 12px 14px;
+    border-radius: 18px;
+    background:
+        radial-gradient(circle at top left, rgba(var(--accent-rgb), 0.12), transparent 45%),
+        rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(var(--accent-rgb), 0.14);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.manager-batch-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.manager-selection-info {
+    display: none;
+}
+
+.manager-batch-actions .secondary-button.icon-only {
+    width: 42px;
+    min-width: 42px;
+    height: 42px;
+    min-height: 42px;
+    padding: 0;
+    border-radius: 14px;
+}
+
+.manager-icon-glyph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    font-size: 22px;
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.94);
 }
 
 .mods-install-btn {
@@ -3777,6 +4069,67 @@ body.platform-win .mods-filter-field {
     border-radius: 18px;
 }
 
+.content-panel[data-panel="mod-manager"] .mods-result-card.is-selected {
+    border-color: rgba(var(--accent-rgb), 0.34);
+    background:
+        radial-gradient(circle at top left, rgba(var(--accent-rgb), 0.14), transparent 42%),
+        rgba(255, 255, 255, 0.06);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.06),
+        0 16px 34px rgba(0, 0, 0, 0.16);
+}
+
+.manager-cover-toggle {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    border-radius: 18px;
+    cursor: pointer;
+}
+
+.manager-cover-toggle .mods-result-cover,
+.manager-cover-toggle .mods-result-cover--fallback {
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.manager-cover-toggle:hover .mods-result-cover,
+.manager-cover-toggle:hover .mods-result-cover--fallback {
+    transform: translateY(-1px) scale(1.02);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.18);
+}
+
+.manager-cover-check {
+    position: absolute;
+    right: -4px;
+    bottom: -4px;
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(20, 24, 32, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.22);
+    opacity: 0;
+    transform: scale(0.7);
+    transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.manager-cover-check img {
+    width: 14px;
+    height: 14px;
+}
+
+.mods-result-card.is-selected .manager-cover-check {
+    opacity: 1;
+    transform: scale(1);
+    background: rgba(var(--accent-rgb), 0.96);
+}
+
 .content-panel[data-panel="mod-manager"] .mods-result-body {
     gap: 4px;
 }
@@ -3784,15 +4137,26 @@ body.platform-win .mods-filter-field {
 .content-panel[data-panel="mod-manager"] .mods-result-title {
     font-size: 16px;
     line-height: 1.1;
+    font-weight: 700;
 }
 
 .content-panel[data-panel="mod-manager"] .mods-result-meta {
-    font-size: 10px;
+    font-size: 13px;
     line-height: 1.25;
 }
 
 .content-panel[data-panel="mod-manager"] .mods-result-footer {
     margin-top: 2px;
+}
+
+.content-panel[data-panel="mod-manager"] .mods-result-actions {
+    gap: 8px;
+    align-items: center;
+}
+
+.content-panel[data-panel="mod-manager"] .mods-install-btn {
+    min-height: 40px;
+    border-radius: 16px;
 }
 
 .content-panel[data-panel="mod-manager"] .mods-result-tag,
@@ -4206,6 +4570,12 @@ body.platform-win .mods-filter-field {
     border-color: rgba(var(--accent-rgb), 0.24);
     transform: translateY(-2px);
     box-shadow: 0 16px 30px rgba(0, 0, 0, 0.12);
+}
+
+.mods-type-option.is-active {
+    background: rgba(var(--accent-rgb), 0.18);
+    border-color: rgba(var(--accent-rgb), 0.48);
+    box-shadow: 0 16px 30px rgba(0, 0, 0, 0.16);
 }
 
 .mods-type-icon-large {

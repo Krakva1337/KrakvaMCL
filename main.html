@@ -64,6 +64,21 @@
                 <span class="title-text">KrakvaMCL - Играть | Fabric 1.21.11</span>
             </div>
 
+            <div class="toolbar-selection" id="toolbar-selection" hidden>
+                <span class="toolbar-selection-text" id="toolbar-selection-text">Выбрано: 0</span>
+                <div class="toolbar-selection-actions">
+                    <button class="control-btn toolbar-action-btn" id="toolbar-enable-selected-btn" type="button" aria-label="Включить">
+                        <img src="assets/icons/check_24dp_E3E3E3_FILL1_wght400_GRAD0_opsz24.png" alt="">
+                    </button>
+                    <button class="control-btn toolbar-action-btn" id="toolbar-disable-selected-btn" type="button" aria-label="Выключить">
+                        <span class="manager-icon-glyph">×</span>
+                    </button>
+                    <button class="control-btn toolbar-action-btn is-danger" id="toolbar-delete-selected-btn" type="button" aria-label="Удалить">
+                        <img src="assets/icons/delete_24dp_E3E3E3_FILL1_wght400_GRAD0_opsz24.png" alt="">
+                    </button>
+                </div>
+            </div>
+
             <button class="search-toggle" type="button" aria-label="Открыть поиск">⌕</button>
 
             <div class="search-overlay" aria-hidden="true">
@@ -84,12 +99,12 @@
             <section class="content-panel active" data-panel="play">
                 <div class="panel-card hero-card">
                     <span class="panel-label" id="play-panel-label">Играть</span>
-                    <h2 class="panel-title play-title" id="play-panel-title">Fabric 1.21.11 готов к запуску</h2>
+                    <h2 class="panel-title play-title" id="play-panel-title">Стандарт • Vanilla 1.21.11</h2>
                     <p class="panel-copy play-copy" id="play-panel-copy">Выберите сборку, аккаунт и загрузчик для быстрого старта.</p>
                     <div class="loader-showcase" id="loader-showcase"></div>
                     
                     <div class="play-launch-row">
-                        <button class="play-select-btn" id="play-select-btn" type="button">Быстрый выбор</button>
+                        <button class="play-select-btn" id="play-select-btn" type="button">Стандарт • Vanilla 1.21.11</button>
                         <button class="play-launch-btn" id="play-launch-btn" type="button">Играть</button>
                     </div>
                 </div>
@@ -130,14 +145,21 @@
                 <div class="panel-card mods-card">
                     <div class="mods-topbar">
                         <div>
-                            <span class="panel-label" id="mod-manager-panel-label">Менеджер модов</span>
-                            <h2 class="panel-title" id="mod-manager-panel-title">Моды в сборке</h2>
+                            <span class="panel-label" id="mod-manager-panel-label">Менеджер</span>
+                            <h2 class="panel-title" id="mod-manager-panel-title">Менеджер</h2>
                         </div>
 
                         <div class="mods-source-switch">
                             <div class="mods-search-summary mods-search-summary--inline">
                                 <span class="mods-search-label" id="mod-manager-search-label">Текущая сборка</span>
                                 <span class="mods-search-status" id="mod-manager-search-status">Загрузка установленных модов...</span>
+                            </div>
+                            <div class="mods-filter-field">
+                                <span class="mods-filter-label" id="mod-manager-type-label">Тип</span>
+                                <button class="mods-type-toggle" id="mod-manager-type-toggle" type="button">
+                                    <span class="mods-type-label" id="mod-manager-type-label-value">Всё</span>
+                                    <span class="mods-type-icon">⋮</span>
+                                </button>
                             </div>
                             <button class="mods-folder-btn" id="mod-manager-folder-btn" type="button" aria-label="Открыть папку mods">
                                 <img src="assets/icons/folder_24dp_E3E3E3_FILL1_wght400_GRAD0_opsz24.png" alt="">
@@ -451,6 +473,49 @@
                 <button class="mods-type-option" type="button" data-type="datapacks">
                     <span class="mods-type-icon-large">⚙️</span>
                     <span class="mods-type-name">Датапаки</span>
+                </button>
+                <button class="mods-type-option" type="button" data-type="modpacks">
+                    <span class="mods-type-icon-large">🧰</span>
+                    <span class="mods-type-name">Модпаки</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="mod-manager-type-modal-overlay" hidden>
+        <div class="modal-card mods-type-modal" role="dialog" aria-modal="true" aria-labelledby="mod-manager-type-modal-title">
+            <div class="modal-head">
+                <div>
+                    <span class="panel-label" id="mod-manager-type-modal-label">Тип содержимого</span>
+                    <h2 class="panel-title modal-title" id="mod-manager-type-modal-title">Выберите тип</h2>
+                </div>
+                <button class="modal-close-btn" id="mod-manager-type-modal-close" type="button" aria-label="Закрыть">×</button>
+            </div>
+
+            <div class="mods-type-grid" id="mod-manager-type-grid">
+                <button class="mods-type-option" type="button" data-manager-type="all">
+                    <span class="mods-type-icon-large">🗂️</span>
+                    <span class="mods-type-name">Всё</span>
+                </button>
+                <button class="mods-type-option" type="button" data-manager-type="mods">
+                    <span class="mods-type-icon-large">📦</span>
+                    <span class="mods-type-name">Моды</span>
+                </button>
+                <button class="mods-type-option" type="button" data-manager-type="resourcepacks">
+                    <span class="mods-type-icon-large">🎨</span>
+                    <span class="mods-type-name">Ресурс-паки</span>
+                </button>
+                <button class="mods-type-option" type="button" data-manager-type="shaderpacks">
+                    <span class="mods-type-icon-large">✨</span>
+                    <span class="mods-type-name">Шейдеры</span>
+                </button>
+                <button class="mods-type-option" type="button" data-manager-type="datapacks">
+                    <span class="mods-type-icon-large">⚙️</span>
+                    <span class="mods-type-name">Датапаки</span>
+                </button>
+                <button class="mods-type-option" type="button" data-manager-type="modpacks">
+                    <span class="mods-type-icon-large">🧰</span>
+                    <span class="mods-type-name">Модпаки</span>
                 </button>
             </div>
         </div>

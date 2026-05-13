@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, shell, nativeImage } = require('electron');
 const { spawn, spawnSync } = require('child_process');
 const crypto = require('crypto');
 const extractZip = require('extract-zip');
@@ -53,10 +53,32 @@ const GITHUB_BRANCH = 'main';
 const GITHUB_API_BASE = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}`;
 const GITHUB_PACKAGE_CONTENTS_URL = `${GITHUB_API_BASE}/contents/package.json?ref=${GITHUB_BRANCH}`;
 const GITHUB_ZIPBALL_URL = `${GITHUB_API_BASE}/zipball/${GITHUB_BRANCH}`;
+const CONTENT_TYPE_MAP = {
+    mods: { projectType: 'mod', subdir: 'mods', useLoader: true, browseInstallOnlyFiles: true },
+    resourcepacks: { projectType: 'resourcepack', subdir: 'resourcepacks', useLoader: false },
+    shaderpacks: { projectType: 'shader', subdir: 'shaderpacks', useLoader: false },
+    datapacks: { projectType: 'datapack', subdir: 'datapacks', useLoader: false },
+    modpacks: { projectType: 'modpack', subdir: 'modpacks', useLoader: false }
+};
+const INSTALLABLE_CONTENT_TYPES = Object.keys(CONTENT_TYPE_MAP);
 
 let mainWindow = null;
 let activeGameProcess = null;
 let latestCrashReportPath = '';
+let discordRpc = null;
+let discordRpcClient = null;
+let discordRpcReady = false;
+let discordRpcLoginStarted = false;
+let discordPresenceState = {
+    activeView: 'play',
+    gameRunning: false,
+    gameVersion: '',
+    buildName: '',
+    gameMode: '',
+    gameStartTimestamp: null,
+    launchTitle: '',
+    launchDetail: ''
+};
 const WINDOW_CLOSE_ANIMATION_MS = 260;
 const WINDOW_OPEN_ANIMATION_MS = 320;
 
@@ -71,8 +93,12 @@ const assetsRoot = path.join(launcherDataRoot, 'assets');
 const javaRuntimesRoot = path.join(launcherDataRoot, 'java-runtimes');
 const logConfigsRoot = path.join(launcherDataRoot, 'log-configs');
 const reportsRoot = path.join(launcherDataRoot, 'crash-reports');
+const javaCandidatesCachePath = path.join(launcherDataRoot, 'java-candidates-cache.json');
 const bundledKrakvaAgentPath = path.join(__dirname, 'assets', 'KrakvaAgent-runtime.jar');
 const bundledAuthlibInjectorPath = path.join(__dirname, 'assets', 'authlib-injector-1.2.7.jar');
+const DISCORD_RPC_GITHUB_URL = 'https://github.com/Krakva1337/KrakvaMCL';
+const DISCORD_RPC_CLIENT_ID = '1504040954552914081';
+const DISCORD_RPC_VERSION_LABEL = '3.0 - Alpha';
 // URL auth-сервера для authlib-injector (ALT API / Yggdrasil-совместимый).
 // Замени на адрес своего сервера (Ely.by: https://authserver.ely.by/api/authlib-injector).
 const AUTHLIB_INJECTOR_AUTH_SERVER = 'https://authserver.ely.by/api/authlib-injector';
@@ -97,6 +123,49 @@ function ensureLauncherDataRoot() {
     fs.mkdirSync(javaRuntimesRoot, { recursive: true });
     fs.mkdirSync(logConfigsRoot, { recursive: true });
     fs.mkdirSync(reportsRoot, { recursive: true });
+}
+
+function readJavaCandidatesCache() {
+    if (!fs.existsSync(javaCandidatesCachePath)) {
+        return null;
+    }
+
+    try {
+        const parsed = JSON.parse(fs.readFileSync(javaCandidatesCachePath, 'utf-8'));
+        if (!Array.isArray(parsed?.javaOptions)) {
+            return null;
+        }
+
+        const freshForMs = process.platform === 'win32' ? 1000 * 60 * 60 * 12 : 1000 * 60 * 30;
+        const timestamp = Number(parsed.timestamp || 0);
+        const isFresh = Date.now() - timestamp < freshForMs;
+        const javaOptions = parsed.javaOptions.filter((option) => {
+            return option?.value === 'auto' || (option?.value && fs.existsSync(option.value));
+        });
+
+        if (!javaOptions.length) {
+            return null;
+        }
+
+        return {
+            isFresh,
+            javaOptions
+        };
+    } catch {
+        return null;
+    }
+}
+
+function writeJavaCandidatesCache(javaOptions = []) {
+    try {
+        ensureLauncherDataRoot();
+        fs.writeFileSync(javaCandidatesCachePath, JSON.stringify({
+            timestamp: Date.now(),
+            javaOptions
+        }, null, 2));
+    } catch {
+        // Ignore cache write errors.
+    }
 }
 
 function ensureBundledAssetFile(sourcePath, destinationName) {
@@ -154,7 +223,9 @@ function getDefaultSettings() {
         activeBuildId: DEFAULT_BUILD_ID,
         minimizeToTrayOnLaunch: false,
         reopenLauncherOnGameExit: true,
-        githubToken: ''
+        githubToken: '',
+        discordRpcEnabled: true,
+        discordClientId: DISCORD_RPC_CLIENT_ID
     };
 }
 
@@ -200,6 +271,11 @@ function getBuildMetaPath(buildId) {
 
 function getBuildModsPath(buildId) {
     return path.join(getBuildDir(buildId), 'mods');
+}
+
+function getBuildContentPath(buildId, contentType = 'mods') {
+    const typeInfo = CONTENT_TYPE_MAP[contentType] || CONTENT_TYPE_MAP.mods;
+    return path.join(getBuildDir(buildId), typeInfo.subdir);
 }
 
 function getBuildLibrariesPath(buildId) {
@@ -353,6 +429,161 @@ function formatBytes(bytes) {
     return `${(value / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
+function formatDiscordViewLabel(view = '') {
+    const labels = {
+        play: 'Играть',
+        mods: 'Modrinth',
+        'mod-manager': 'Менеджер',
+        builds: 'Сборки',
+        news: 'Новости',
+        settings: 'Настройки'
+    };
+
+    return labels[String(view || '').toLowerCase()] || 'Лаунчер';
+}
+
+function getDiscordRpcClientId() {
+    const envClientId = String(process.env.KRAKVAMCL_DISCORD_CLIENT_ID || '').trim();
+    if (envClientId) {
+        return envClientId;
+    }
+
+    try {
+        if (fs.existsSync(settingsPath)) {
+            const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+            return String(parsed?.discordClientId || DISCORD_RPC_CLIENT_ID).trim();
+        }
+    } catch {
+        return DISCORD_RPC_CLIENT_ID;
+    }
+
+    return DISCORD_RPC_CLIENT_ID;
+}
+
+function buildDiscordActivity() {
+    const details = `Версия лаунчера ${getLauncherVersion() || DISCORD_RPC_VERSION_LABEL}`;
+    const buttons = [{ label: 'GitHub', url: DISCORD_RPC_GITHUB_URL }];
+    const state = resolveDiscordUserActivity();
+    const largeText = 'KrakvaMCL';
+
+    const activity = {
+        details,
+        state,
+        largeImageText: largeText,
+        buttons,
+        instance: false
+    };
+
+    if (discordPresenceState.gameRunning && discordPresenceState.gameStartTimestamp) {
+        activity.startTimestamp = new Date(discordPresenceState.gameStartTimestamp);
+    }
+
+    return activity;
+}
+
+function detectDiscordGameMode(launchTitle = '', launchDetail = '') {
+    const combined = `${String(launchTitle || '').toLowerCase()} ${String(launchDetail || '').toLowerCase()}`;
+    if (/(multiplayer|server|serverip|connecting to|join|realm|realms)/i.test(combined)) {
+        return 'multiplayer';
+    }
+
+    if (/(singleplayer|integrated server|local game|одиноч|single player)/i.test(combined)) {
+        return 'singleplayer';
+    }
+
+    return '';
+}
+
+function resolveDiscordUserActivity() {
+    if (!discordPresenceState.gameRunning) {
+        return 'В лаунчере';
+    }
+
+    const gameMode = discordPresenceState.gameMode
+        || detectDiscordGameMode(discordPresenceState.launchTitle, discordPresenceState.launchDetail);
+
+    if (gameMode === 'multiplayer') {
+        return 'Играет | Мультиплеер';
+    }
+
+    return 'Играет | Одиночная игра';
+}
+
+function applyDiscordPresence() {
+    if (!discordRpcReady || !discordRpcClient) {
+        return;
+    }
+
+    try {
+        discordRpcClient.setActivity(buildDiscordActivity());
+    } catch {
+        // Ignore transient RPC failures.
+    }
+}
+
+function ensureDiscordRpc() {
+    if (discordRpcLoginStarted || process.platform !== 'win32' && process.platform !== 'darwin') {
+        return;
+    }
+
+    const settings = loadSettings();
+    if (settings.discordRpcEnabled === false) {
+        return;
+    }
+
+    const clientId = getDiscordRpcClientId();
+    if (!clientId) {
+        return;
+    }
+
+    try {
+        discordRpc = require('discord-rpc');
+    } catch {
+        return;
+    }
+
+    discordRpcLoginStarted = true;
+    discordRpc.register(clientId);
+    discordRpcClient = new discordRpc.Client({ transport: 'ipc' });
+
+    discordRpcClient.on('ready', () => {
+        discordRpcReady = true;
+        applyDiscordPresence();
+    });
+
+    discordRpcClient.on('disconnected', () => {
+        discordRpcReady = false;
+    });
+
+    discordRpcClient.login({ clientId }).catch(() => {
+        discordRpcLoginStarted = false;
+        discordRpcReady = false;
+    });
+}
+
+function updateDiscordPresence(patch = {}) {
+    const nextState = {
+        ...discordPresenceState,
+        ...(patch || {})
+    };
+    const detectedGameMode = patch?.gameMode
+        || detectDiscordGameMode(nextState.launchTitle, nextState.launchDetail)
+        || nextState.gameMode;
+
+    if (nextState.gameRunning && !discordPresenceState.gameRunning) {
+        nextState.gameStartTimestamp = Date.now();
+    } else if (!nextState.gameRunning) {
+        nextState.gameStartTimestamp = null;
+        nextState.gameMode = '';
+    } else {
+        nextState.gameMode = detectedGameMode || 'singleplayer';
+    }
+
+    discordPresenceState = nextState;
+    ensureDiscordRpc();
+    applyDiscordPresence();
+}
+
 function guessCrashReason(logText = '') {
     const content = String(logText || '').toLowerCase();
 
@@ -429,9 +660,9 @@ function emitJavaOptionsUpdate() {
         return;
     }
 
-    mainWindow.webContents.send('system:java-options-updated', {
-        javaOptions: [{ value: 'auto', label: 'AutoJava' }, ...getJavaCandidates()]
-    });
+    const javaOptions = [{ value: 'auto', label: 'AutoJava' }, ...getJavaCandidates()];
+    writeJavaCandidatesCache(javaOptions);
+    mainWindow.webContents.send('system:java-options-updated', { javaOptions });
 }
 
 function wait(ms) {
@@ -1324,7 +1555,8 @@ async function prepareFabricRuntime(build, accountName, onStatus) {
         libraries,
         nativesDir,
         logging,
-        krakvaAgentPath
+        krakvaAgentPath,
+        libraryDirectory: getBuildLibrariesPath(build.id)
     };
 }
 
@@ -1427,7 +1659,8 @@ async function prepareForgeRuntime(build, accountName, javaExecutable, onStatus)
         libraries,
         nativesDir,
         logging,
-        krakvaAgentPath
+        krakvaAgentPath,
+        libraryDirectory: getBuildLibrariesPath(build.id)
     };
 }
 
@@ -1800,6 +2033,13 @@ async function launchGame(payload = null) {
         command: [launchProcess.displayExecutable, ...command].join(' '),
         progress: 100
     });
+    updateDiscordPresence({
+        gameRunning: true,
+        gameVersion: build.minecraftVersion || '',
+        buildName: build.name || build.id || '',
+        launchTitle: 'Запуск игры',
+        launchDetail: `${build.loader || 'vanilla'} ${build.minecraftVersion || ''}`.trim()
+    });
 
     const stdoutChunks = [];
     const stderrChunks = [];
@@ -1831,6 +2071,13 @@ async function launchGame(payload = null) {
             title: 'Игра запущена',
             detail: text.trim().slice(-180) || 'Процесс активен'
         });
+        updateDiscordPresence({
+            gameRunning: true,
+            gameVersion: build.minecraftVersion || '',
+            buildName: build.name || build.id || '',
+            launchTitle: 'Игра запущена',
+            launchDetail: text.trim().slice(-180) || 'Процесс активен'
+        });
     });
 
     activeGameProcess.stderr?.on('data', (chunk) => {
@@ -1842,6 +2089,13 @@ async function launchGame(payload = null) {
             status: 'running',
             title: 'Логи запуска',
             detail: text.trim().slice(-180) || 'Чтение stderr'
+        });
+        updateDiscordPresence({
+            gameRunning: true,
+            gameVersion: build.minecraftVersion || '',
+            buildName: build.name || build.id || '',
+            launchTitle: 'Логи запуска',
+            launchDetail: text.trim().slice(-180) || 'Чтение stderr'
         });
     });
 
@@ -1862,6 +2116,11 @@ async function launchGame(payload = null) {
             detail: report.reason,
             reportPath: report.filePath
         });
+        updateDiscordPresence({
+            gameRunning: false,
+            launchTitle: 'Ошибка запуска',
+            launchDetail: report.reason
+        });
         if (mainWindow && !mainWindow.isDestroyed()) {
             await showLauncherWindowAnimated();
         }
@@ -1881,6 +2140,11 @@ async function launchGame(payload = null) {
                 detail: 'Процесс завершился без ошибок',
                 exitCode: code
             });
+            updateDiscordPresence({
+                gameRunning: false,
+                launchTitle: 'Игра завершилась',
+                launchDetail: 'Процесс завершился без ошибок'
+            });
         } else {
             const report = createCrashReport({
                 build,
@@ -1896,6 +2160,11 @@ async function launchGame(payload = null) {
                 detail: report.reason,
                 exitCode: code,
                 reportPath: report.filePath
+            });
+            updateDiscordPresence({
+                gameRunning: false,
+                launchTitle: 'Обнаружен краш',
+                launchDetail: report.reason
             });
         }
 
@@ -2087,6 +2356,7 @@ function ensureDefaultBuild() {
 
     fs.mkdirSync(buildDir, { recursive: true });
     fs.mkdirSync(getBuildModsPath(buildId), { recursive: true });
+    fs.mkdirSync(getBuildLibrariesPath(buildId), { recursive: true });
     fs.mkdirSync(getBuildVersionsDir(buildId), { recursive: true });
     fs.mkdirSync(getBuildReportsDir(buildId), { recursive: true });
 
@@ -2120,6 +2390,7 @@ function readBuild(buildId) {
     }
 
     fs.mkdirSync(getBuildModsPath(buildId), { recursive: true });
+    fs.mkdirSync(getBuildLibrariesPath(buildId), { recursive: true });
     fs.mkdirSync(getBuildVersionsDir(buildId), { recursive: true });
     fs.mkdirSync(getBuildReportsDir(buildId), { recursive: true });
 
@@ -3090,14 +3361,6 @@ async function getBuildOptions() {
     };
 }
 
-// Маппинг типов контента → Modrinth project_type и папки установки
-const CONTENT_TYPE_MAP = {
-    mods:          { projectType: 'mod',          subdir: 'mods',          useLoader: true  },
-    resourcepacks: { projectType: 'resourcepack',  subdir: 'resourcepacks', useLoader: false },
-    shaderpacks:   { projectType: 'shader',         subdir: 'shaderpacks',   useLoader: false },
-    datapacks:     { projectType: 'datapack',       subdir: 'datapacks',     useLoader: false },
-};
-
 async function searchModrinthMods(query, gameVersion = DEFAULT_GAME_VERSION, loader = DEFAULT_LOADER, category = 'all', limit = 12, offset = 0, contentType = 'mods') {
     const typeInfo = CONTENT_TYPE_MAP[contentType] || CONTENT_TYPE_MAP.mods;
 
@@ -3242,37 +3505,86 @@ async function downloadFile(destinationDir, url, filename) {
     return destination;
 }
 
-function listInstalledMods(buildId = null) {
+function isDisabledContentName(name = '') {
+    return /\.disabled$/i.test(String(name || ''));
+}
+
+function getContentBaseName(name = '') {
+    return String(name || '').replace(/\.disabled$/i, '');
+}
+
+function getInstalledEntryDisplayTitle(filename = '', contentType = 'mods') {
+    const basename = getContentBaseName(filename);
+    if (contentType === 'mods') {
+        return inferModTitle(basename);
+    }
+
+    return String(basename)
+        .replace(/\.(zip|mrpack)$/i, '')
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function shouldIncludeInstalledEntry(entry, contentType = 'mods') {
+    if (!entry || String(entry.name || '').startsWith('.')) {
+        return false;
+    }
+
+    const normalizedName = getContentBaseName(entry.name);
+
+    if (contentType === 'mods') {
+        return entry.isDirectory() || (entry.isFile() && /\.jar$/i.test(normalizedName));
+    }
+
+    if (contentType === 'modpacks') {
+        return entry.isDirectory() || /\.(mrpack|zip)$/i.test(normalizedName);
+    }
+
+    return entry.isDirectory() || /\.(zip|jar)$/i.test(normalizedName);
+}
+
+function listInstalledMods(buildId = null, contentType = 'all') {
     const activeBuild = buildId ? readBuild(buildId) : getActiveBuild();
 
     if (!activeBuild) {
         throw new Error('Сборка не найдена.');
     }
 
-    fs.mkdirSync(activeBuild.modsPath, { recursive: true });
-
     const metadata = loadBuildModsMeta(activeBuild.id);
-    const files = fs.readdirSync(activeBuild.modsPath, { withFileTypes: true })
-        .filter((entry) => entry.isFile() && /\.jar(?:\.disabled)?$/i.test(entry.name))
-        .map((entry) => {
-            const filename = entry.name;
-            const enabled = !filename.endsWith('.disabled');
-            const meta = metadata[filename] || metadata[filename.replace(/\.disabled$/i, '')] || null;
+    const requestedTypes = contentType === 'all'
+        ? INSTALLABLE_CONTENT_TYPES
+        : [contentType];
+    const files = requestedTypes.flatMap((type) => {
+        const contentPath = getBuildContentPath(activeBuild.id, type);
+        fs.mkdirSync(contentPath, { recursive: true });
 
-            return {
-                id: filename,
-                filename,
-                projectId: meta?.projectId || null,
-                title: meta?.title || inferModTitle(filename),
-                author: meta?.author || '',
-                versionName: meta?.versionName || '',
-                enabled,
-                path: path.join(activeBuild.modsPath, filename),
-                normalizedName: normalizeModKey(meta?.title || filename),
-                source: meta?.source || 'file',
-                installedAt: meta?.installedAt || ''
-            };
-        })
+        return fs.readdirSync(contentPath, { withFileTypes: true })
+            .filter((entry) => shouldIncludeInstalledEntry(entry, type))
+            .map((entry) => {
+                const filename = entry.name;
+                const enabled = !isDisabledContentName(filename);
+                const meta = type === 'mods'
+                    ? metadata[filename] || metadata[getContentBaseName(filename)] || null
+                    : null;
+
+                return {
+                    id: `${type}:${filename}`,
+                    filename,
+                    projectId: meta?.projectId || null,
+                    title: meta?.title || getInstalledEntryDisplayTitle(filename, type),
+                    author: meta?.author || '',
+                    versionName: meta?.versionName || '',
+                    enabled,
+                    path: path.join(contentPath, filename),
+                    normalizedName: normalizeModKey(meta?.title || filename),
+                    source: meta?.source || 'file',
+                    installedAt: meta?.installedAt || '',
+                    contentType: type,
+                    isDirectory: entry.isDirectory()
+                };
+            });
+    })
         .sort((a, b) => a.title.localeCompare(b.title, 'ru', { sensitivity: 'base' }));
 
     return {
@@ -3305,49 +3617,57 @@ function updateInstalledModFilenameMeta(buildId, fromFilename, toFilename) {
     }
 }
 
-function toggleInstalledMod(filename, buildId = null) {
+function toggleInstalledMod(filename, buildId = null, contentType = 'mods') {
     const activeBuild = buildId ? readBuild(buildId) : getActiveBuild();
 
     if (!activeBuild) {
         throw new Error('Сборка не найдена.');
     }
 
-    const currentPath = path.join(activeBuild.modsPath, filename);
+    const contentPath = getBuildContentPath(activeBuild.id, contentType);
+    fs.mkdirSync(contentPath, { recursive: true });
+    const currentPath = path.join(contentPath, filename);
     if (!fs.existsSync(currentPath)) {
-        throw new Error('Мод не найден.');
+        throw new Error('Файл не найден.');
     }
 
     const nextFilename = filename.endsWith('.disabled')
         ? filename.replace(/\.disabled$/i, '')
         : `${filename}.disabled`;
-    const nextPath = path.join(activeBuild.modsPath, nextFilename);
+    const nextPath = path.join(contentPath, nextFilename);
 
     fs.renameSync(currentPath, nextPath);
-    updateInstalledModFilenameMeta(activeBuild.id, filename, nextFilename);
+    if (contentType === 'mods') {
+        updateInstalledModFilenameMeta(activeBuild.id, filename, nextFilename);
+    }
 
-    return listInstalledMods(activeBuild.id);
+    return listInstalledMods(activeBuild.id, 'all');
 }
 
-function deleteInstalledMod(filename, buildId = null) {
+function deleteInstalledMod(filename, buildId = null, contentType = 'mods') {
     const activeBuild = buildId ? readBuild(buildId) : getActiveBuild();
 
     if (!activeBuild) {
         throw new Error('Сборка не найдена.');
     }
 
-    const targetPath = path.join(activeBuild.modsPath, filename);
+    const contentPath = getBuildContentPath(activeBuild.id, contentType);
+    fs.mkdirSync(contentPath, { recursive: true });
+    const targetPath = path.join(contentPath, filename);
     if (!fs.existsSync(targetPath)) {
-        throw new Error('Мод не найден.');
+        throw new Error('Файл не найден.');
     }
 
-    fs.rmSync(targetPath, { force: true });
+    fs.rmSync(targetPath, { recursive: true, force: true });
 
-    const metadata = loadBuildModsMeta(activeBuild.id);
-    delete metadata[filename];
-    delete metadata[filename.replace(/\.disabled$/i, '')];
-    saveBuildModsMeta(activeBuild.id, metadata);
+    if (contentType === 'mods') {
+        const metadata = loadBuildModsMeta(activeBuild.id);
+        delete metadata[filename];
+        delete metadata[filename.replace(/\.disabled$/i, '')];
+        saveBuildModsMeta(activeBuild.id, metadata);
+    }
 
-    return listInstalledMods(activeBuild.id);
+    return listInstalledMods(activeBuild.id, 'all');
 }
 
 function getActiveBuild() {
@@ -3399,6 +3719,7 @@ function createBuild({ name, minecraftVersion, loader }) {
 
     fs.mkdirSync(getBuildDir(nextId), { recursive: true });
     fs.mkdirSync(getBuildModsPath(nextId), { recursive: true });
+    fs.mkdirSync(getBuildLibrariesPath(nextId), { recursive: true });
     fs.mkdirSync(getBuildVersionsDir(nextId), { recursive: true });
     fs.mkdirSync(getBuildReportsDir(nextId), { recursive: true });
     fs.writeFileSync(getBuildMetaPath(nextId), JSON.stringify(meta, null, 2));
@@ -3448,6 +3769,7 @@ function updateBuild(buildId, { name, minecraftVersion, loader }) {
     };
 
     fs.mkdirSync(getBuildModsPath(nextId), { recursive: true });
+    fs.mkdirSync(getBuildLibrariesPath(nextId), { recursive: true });
     fs.mkdirSync(getBuildVersionsDir(nextId), { recursive: true });
     fs.mkdirSync(getBuildReportsDir(nextId), { recursive: true });
     fs.writeFileSync(getBuildMetaPath(nextId), JSON.stringify(nextMeta, null, 2));
@@ -3637,10 +3959,30 @@ function createWindow() {
     });
 }
 
+function applyMacAppIcon() {
+    if (process.platform !== 'darwin' || !app.dock) {
+        return;
+    }
+
+    const dockIconPath = path.join(__dirname, 'assets', 'icon.icns');
+    if (!fs.existsSync(dockIconPath)) {
+        return;
+    }
+
+    const iconImage = nativeImage.createFromPath(dockIconPath);
+    if (iconImage.isEmpty()) {
+        return;
+    }
+
+    app.dock.setIcon(iconImage);
+}
+
 app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
     migrateLegacyData();
     ensureDefaultBuild();
+    ensureDiscordRpc();
+    applyMacAppIcon();
     createWindow();
 
     app.on('activate', () => {
@@ -3694,12 +4036,26 @@ ipcMain.handle('system:info', () => {
         return cache.systemInfo.data;
     }
     
+    const cachedJava = readJavaCandidatesCache();
+    const canFastPath = process.platform === 'win32' && cachedJava?.javaOptions?.length;
+    const javaOptions = canFastPath
+        ? cachedJava.javaOptions
+        : [{ value: 'auto', label: 'AutoJava' }, ...getJavaCandidates()];
     const result = {
         ...getSystemInfo(),
-        javaOptions: [{ value: 'auto', label: 'AutoJava' }, ...getJavaCandidates()]
+        javaOptions
     };
     cache.systemInfo.data = result;
     cache.systemInfo.timestamp = now;
+
+    if (canFastPath && !cachedJava.isFresh) {
+        setTimeout(() => {
+            emitJavaOptionsUpdate();
+        }, 0);
+    } else if (!canFastPath) {
+        writeJavaCandidatesCache(javaOptions);
+    }
+
     return result;
 });
 
@@ -3738,27 +4094,37 @@ ipcMain.handle('mods:download', async (_event, payload) => {
 });
 
 ipcMain.handle('mods:list-installed', (_event, buildId) => {
-    const cacheKey = `installedMods_${buildId}`;
+    const normalizedBuildId = typeof buildId === 'object' && buildId !== null ? buildId.buildId || null : buildId;
+    const contentType = typeof buildId === 'object' && buildId !== null ? buildId.contentType || 'all' : 'all';
+    const cacheKey = `installedMods_${normalizedBuildId}_${contentType}`;
     let cached = cache.installedMods.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < 10000) {
         return cached.data;
     }
-    const result = listInstalledMods(buildId || null);
+    const result = listInstalledMods(normalizedBuildId || null, contentType);
     cache.installedMods.set(cacheKey, { data: result, timestamp: Date.now() });
     return result;
 });
 
 ipcMain.handle('mods:toggle-installed', (_event, payload) => {
-    const result = toggleInstalledMod(payload?.filename, payload?.buildId || null);
-    // Invalidate installed mods cache for this build
-    cache.installedMods.delete(`installedMods_${payload?.buildId || null}`);
+    const buildCacheKey = payload?.buildId || null;
+    const result = toggleInstalledMod(payload?.filename, buildCacheKey, payload?.contentType || 'mods');
+    for (const key of cache.installedMods.keys()) {
+        if (key.startsWith(`installedMods_${buildCacheKey}_`)) {
+            cache.installedMods.delete(key);
+        }
+    }
     return result;
 });
 
 ipcMain.handle('mods:delete-installed', (_event, payload) => {
-    const result = deleteInstalledMod(payload?.filename, payload?.buildId || null);
-    // Invalidate installed mods cache for this build
-    cache.installedMods.delete(`installedMods_${payload?.buildId || null}`);
+    const buildCacheKey = payload?.buildId || null;
+    const result = deleteInstalledMod(payload?.filename, buildCacheKey, payload?.contentType || 'mods');
+    for (const key of cache.installedMods.keys()) {
+        if (key.startsWith(`installedMods_${buildCacheKey}_`)) {
+            cache.installedMods.delete(key);
+        }
+    }
     return result;
 });
 
@@ -3789,15 +4155,20 @@ ipcMain.handle('mods:filters', async (_event, payload) => {
     return result;
 });
 
-ipcMain.handle('mods:open-folder', async () => {
+ipcMain.handle('mods:open-folder', async (_event, payload) => {
     const activeBuild = getActiveBuild();
-    const result = await shell.openPath(activeBuild.modsPath);
+    const contentType = payload?.contentType || 'mods';
+    const targetPath = contentType === 'all'
+        ? activeBuild.path
+        : getBuildContentPath(activeBuild.id, contentType);
+    fs.mkdirSync(targetPath, { recursive: true });
+    const result = await shell.openPath(targetPath);
 
     if (result) {
         throw new Error(result);
     }
 
-    return activeBuild.modsPath;
+    return targetPath;
 });
 
 ipcMain.handle('builds:list', () => {
@@ -3907,6 +4278,18 @@ ipcMain.handle('game:launch', async (_event, payload) => {
 
 ipcMain.handle('game:state', () => {
     return getGameState();
+});
+
+ipcMain.handle('presence:update', (_event, payload) => {
+    const build = payload?.build && typeof payload.build === 'object' ? payload.build : null;
+    updateDiscordPresence({
+        activeView: payload?.activeView || discordPresenceState.activeView,
+        gameVersion: build?.minecraftVersion || discordPresenceState.gameVersion,
+        buildName: build?.name || build?.id || discordPresenceState.buildName,
+        launchTitle: payload?.launchTitle || discordPresenceState.launchTitle,
+        launchDetail: payload?.launchDetail || discordPresenceState.launchDetail
+    });
+    return true;
 });
 
 ipcMain.handle('launcher-updates:check', async (_event, payload) => {

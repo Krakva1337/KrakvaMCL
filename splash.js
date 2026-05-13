@@ -3,6 +3,7 @@ const progressBar = document.querySelector('.loader-progress');
 const statusText = document.querySelector('.loader-status');
 const splashCard = document.querySelector('.splash');
 const splashClose = document.querySelector('.splash-close');
+const isWindowsPlatform = navigator.userAgent.includes('Windows');
 
 // Этапы загрузки
 const loadingStages = [
@@ -63,7 +64,10 @@ async function saveCache(data) {
             timestamp: Date.now(),
             builds: data.buildsState?.builds?.map(b => ({
                 id: b.id,
-                name: b.name
+                name: b.name,
+                minecraftVersion: b.minecraftVersion,
+                loader: b.loader,
+                isDefault: b.isDefault
             })) || [],
             accounts: data.accounts?.accounts?.map(a => ({
                 id: a.id,
@@ -240,6 +244,8 @@ async function loadPreloadData() {
 function finishLoading() {
     updateStatusText('Готово!');
     statusText.style.color = 'rgba(100, 255, 150, 0.9)';
+    const transitionStartDelay = isWindowsPlatform ? 90 : 220;
+    const redirectDelay = isWindowsPlatform ? 420 : 760;
     
     if (splashCard) {
         splashCard.classList.add('is-ready');
@@ -250,11 +256,11 @@ function finishLoading() {
             splashCard.classList.add('is-transitioning');
         }
         sessionStorage.setItem('main_transition', 'expand');
-    }, 220);
+    }, transitionStartDelay);
 
     setTimeout(() => {
         window.location.href = 'main.html';
-    }, 760);
+    }, redirectDelay);
 }
 
 // Функция обработки ошибок

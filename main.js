@@ -7,10 +7,14 @@ const MODS_CACHE_STORAGE_KEY = 'krakvamcl.mods.cache';
 const DEFAULT_ACCOUNT_NAME = 'Krakva_';
 const MODS_PAGE_SIZE = 12;
 const INSTALLED_MODS_PAGE_SIZE = 12;
+const INSTALLABLE_CONTENT_TYPES = ['mods', 'resourcepacks', 'shaderpacks', 'datapacks', 'modpacks'];
+const NON_TOGGLABLE_CONTENT_TYPES = ['resourcepacks', 'shaderpacks'];
 
 const state = {
     activeView: 'play',
     modsType: 'mods',
+    managerContentType: 'all',
+    selectedInstalledItems: [],
     settings: {
         language: DEFAULT_LANGUAGE,
         memoryMb: 4096,
@@ -52,7 +56,8 @@ const state = {
         mods: {},
         resourcepacks: {},
         shaderpacks: {},
-        datapacks: {}
+        datapacks: {},
+        modpacks: {}
     },
     installedModsCache: {},
     installedModIcons: {},
@@ -61,6 +66,7 @@ const state = {
     playFilterLoader: 'all',
     buildModalMode: 'create',
     editingBuildId: null,
+    modManagerBaseStatus: '',
     lastCrashReportPath: '',
     launchStatus: {
         title: 'Ожидание',
@@ -120,12 +126,21 @@ const translations = {
         mods_type_resourcepacks: 'Ресурс-паки',
         mods_type_shaderpacks: 'Шейдеры',
         mods_type_datapacks: 'Датапаки',
+        mods_type_modpacks: 'Модпаки',
+        mods_type_all: 'Всё',
         mods_type_modal_title: 'Выберите тип содержимого',
         mod_manager_label: 'Менеджер',
-        mod_manager_title: 'Моды в сборке',
+        mod_manager_title: 'Менеджер',
         mod_manager_current_build: 'Текущая сборка',
         mod_manager_loading: 'Загрузка установленных модов...',
-        mod_manager_empty: 'В этой сборке пока нет установленных модов.',
+        mod_manager_empty: 'В этой сборке пока нет установленного контента.',
+        mod_manager_type_label: 'Тип',
+        mod_manager_type_all: 'Всё',
+        mod_manager_enable_selected: 'Включить',
+        mod_manager_disable_selected: 'Выключить',
+        mod_manager_delete_selected: 'Удалить',
+        mod_manager_selected_count: 'Выбрано: {count}',
+        mod_manager_batch_done: 'Массовое действие выполнено.',
         mods_filter_label: 'Категория',
         mods_folder_aria: 'Открыть папку mods активной сборки',
         build_folder_aria: 'Открыть папку активной сборки',
@@ -310,12 +325,21 @@ const translations = {
         mods_type_resourcepacks: 'Resource Packs',
         mods_type_shaderpacks: 'Shaders',
         mods_type_datapacks: 'Data Packs',
+        mods_type_modpacks: 'Modpacks',
+        mods_type_all: 'All',
         mods_type_modal_title: 'Select content type',
         mod_manager_label: 'Manager',
-        mod_manager_title: 'Build Mods',
+        mod_manager_title: 'Manager',
         mod_manager_current_build: 'Current build',
         mod_manager_loading: 'Loading installed mods...',
-        mod_manager_empty: 'There are no installed mods in this build yet.',
+        mod_manager_empty: 'There is no installed content in this build yet.',
+        mod_manager_type_label: 'Type',
+        mod_manager_type_all: 'All',
+        mod_manager_enable_selected: 'Enable',
+        mod_manager_disable_selected: 'Disable',
+        mod_manager_delete_selected: 'Delete',
+        mod_manager_selected_count: 'Selected: {count}',
+        mod_manager_batch_done: 'Batch action completed.',
         mods_filter_label: 'Category',
         mods_folder_aria: 'Open active build mods folder',
         build_folder_aria: 'Open active build folder',
@@ -516,6 +540,11 @@ function cacheRefs() {
     refs.toolbar = document.querySelector('.toolbar');
     refs.toolbarTitle = document.querySelector('.toolbar-title');
     refs.titleText = document.querySelector('.title-text');
+    refs.toolbarSelection = document.getElementById('toolbar-selection');
+    refs.toolbarSelectionText = document.getElementById('toolbar-selection-text');
+    refs.toolbarEnableSelectedBtn = document.getElementById('toolbar-enable-selected-btn');
+    refs.toolbarDisableSelectedBtn = document.getElementById('toolbar-disable-selected-btn');
+    refs.toolbarDeleteSelectedBtn = document.getElementById('toolbar-delete-selected-btn');
     refs.searchToggle = document.querySelector('.search-toggle');
     refs.searchInput = document.getElementById('app-search');
     refs.searchClose = document.querySelector('.search-close');
@@ -527,6 +556,11 @@ function cacheRefs() {
     refs.installedModsPagination = document.getElementById('installed-mods-pagination');
     refs.modManagerStatus = document.getElementById('mod-manager-search-status');
     refs.modManagerFolderBtn = document.getElementById('mod-manager-folder-btn');
+    refs.modManagerTypeToggle = document.getElementById('mod-manager-type-toggle');
+    refs.modManagerTypeLabel = document.getElementById('mod-manager-type-label-value');
+    refs.modManagerTypeModalOverlay = document.getElementById('mod-manager-type-modal-overlay');
+    refs.modManagerTypeModalClose = document.getElementById('mod-manager-type-modal-close');
+    refs.modManagerTypeGrid = document.getElementById('mod-manager-type-grid');
     refs.playSelectBtn = document.getElementById('play-select-btn');
     refs.playLaunchBtn = document.getElementById('play-launch-btn');
     refs.loaderShowcase = document.getElementById('loader-showcase');
@@ -669,7 +703,7 @@ async function initialize() {
             window.launcherBuilds.list(),
             window.launcherMods.getFilters(),
             window.launcherBuilds.getOptions(),
-            window.launcherMods.listInstalled(),
+            window.launcherMods.listInstalled({ contentType: 'all' }),
             window.launcherGame.getState()
         ]);
         [settings, systemInfo, buildsState, filters, buildOptions, installedState, gameState] = loadResults;
@@ -747,6 +781,7 @@ async function initialize() {
     updateLaunchUi();
     updateNavIndicator();
     setSaveState('saved');
+    syncDiscordPresence();
 
     if (state.settings.githubToken) {
         checkForUpdates(true)
@@ -963,14 +998,11 @@ function bindStaticEvents() {
         openAccountModal();
     });
 
-    const openSidebar = () => refs.sidebar?.classList.add('sidebar-hovered');
-    const closeSidebar = () => refs.sidebar?.classList.remove('sidebar-hovered');
+    const openSidebar = () => refs.sidebar?.setAttribute('data-expanded', 'true');
+    const closeSidebar = () => refs.sidebar?.removeAttribute('data-expanded');
 
-    // Sidebar hover - expand when hovering over sidebar area or nav items
-    [refs.sidebar, refs.sidebarNav, refs.sidebarSpacer, refs.accountCard, ...refs.navItems].forEach((element) => {
-        element?.addEventListener('mouseenter', openSidebar);
-        element?.addEventListener('mouseleave', closeSidebar);
-    });
+    refs.sidebar?.addEventListener('mouseenter', openSidebar);
+    refs.sidebar?.addEventListener('mouseleave', closeSidebar);
     
     refs.playPickerClose?.addEventListener('click', closePlayPicker);
     refs.playPickerOverlay?.addEventListener('click', (event) => {
@@ -980,6 +1012,7 @@ function bindStaticEvents() {
     });
 
     refs.modsTypeToggle?.addEventListener('click', () => {
+        syncTypeGridSelection(refs.modsTypeGrid, 'data-type', state.modsType);
         refs.modsTypeModalOverlay.hidden = false;
     });
 
@@ -1017,7 +1050,11 @@ function bindStaticEvents() {
                     console.error(error);
                     updateModsStatus(`${t('error_prefix')}: ${error.message}`);
                 });
+            } else {
+                refs.modsTypeModalOverlay.hidden = true;
             }
+
+            syncTypeGridSelection(refs.modsTypeGrid, 'data-type', state.modsType);
         });
     });
 
@@ -1033,7 +1070,7 @@ function bindStaticEvents() {
 
     refs.modsFolderBtn?.addEventListener('click', async () => {
         try {
-            await window.launcherMods.openFolder();
+            await window.launcherMods.openFolder({ contentType: state.modsType || 'mods' });
             updateModsStatus(t('mods_open_folder_success'));
         } catch (error) {
             updateModsStatus(`${t('error_prefix')}: ${error.message}`);
@@ -1042,11 +1079,81 @@ function bindStaticEvents() {
 
     refs.modManagerFolderBtn?.addEventListener('click', async () => {
         try {
-            await window.launcherMods.openFolder();
+            await window.launcherMods.openFolder({ contentType: state.managerContentType });
             updateInstalledModsStatus(t('mods_open_folder_success'));
         } catch (error) {
             updateInstalledModsStatus(`${t('error_prefix')}: ${error.message}`);
         }
+    });
+
+    refs.modManagerTypeToggle?.addEventListener('click', () => {
+        syncTypeGridSelection(refs.modManagerTypeGrid, 'data-manager-type', state.managerContentType);
+        refs.modManagerTypeModalOverlay.hidden = false;
+    });
+
+    refs.modManagerTypeModalClose?.addEventListener('click', () => {
+        refs.modManagerTypeModalOverlay.hidden = true;
+    });
+
+    refs.modManagerTypeModalOverlay?.addEventListener('click', (event) => {
+        if (event.target === refs.modManagerTypeModalOverlay) {
+            refs.modManagerTypeModalOverlay.hidden = true;
+        }
+    });
+
+    refs.modManagerTypeGrid?.querySelectorAll('[data-manager-type]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const newType = button.getAttribute('data-manager-type');
+            if (newType && newType !== state.managerContentType) {
+                state.managerContentType = newType;
+                state.installedModsCurrentPage = 1;
+                state.selectedInstalledItems = [];
+                renderInstalledMods();
+            }
+
+            renderManagerFilters();
+            refs.modManagerTypeModalOverlay.hidden = true;
+        });
+    });
+
+    refs.toolbarEnableSelectedBtn?.addEventListener('click', async () => {
+        const targets = getSelectedInstalledEntries().filter((item) => !item.enabled);
+        for (const item of targets) {
+            if (!canToggleInstalledEntry(item)) {
+                continue;
+            }
+            await toggleInstalledMod(item.filename, item.contentType || 'mods');
+        }
+        updateInstalledModsStatus(t('mod_manager_batch_done'));
+    });
+
+    refs.toolbarDisableSelectedBtn?.addEventListener('click', async () => {
+        const targets = getSelectedInstalledEntries().filter((item) => item.enabled);
+        for (const item of targets) {
+            if (!canToggleInstalledEntry(item)) {
+                continue;
+            }
+            await toggleInstalledMod(item.filename, item.contentType || 'mods');
+        }
+        updateInstalledModsStatus(t('mod_manager_batch_done'));
+    });
+
+    refs.toolbarDeleteSelectedBtn?.addEventListener('click', async () => {
+        const targets = getSelectedInstalledEntries();
+        if (!targets.length) {
+            return;
+        }
+
+        const confirmed = window.confirm(`Удалить выбранные элементы (${targets.length})?`);
+        if (!confirmed) {
+            return;
+        }
+
+        for (const item of targets) {
+            await deleteInstalledMod(item.filename, item.contentType || 'mods');
+        }
+        state.selectedInstalledItems = [];
+        updateInstalledModsStatus(t('mod_manager_batch_done'));
     });
 
     refs.buildsFolderBtn?.addEventListener('click', async () => {
@@ -1270,6 +1377,18 @@ function bindStaticEvents() {
             if (refs.modsTypeModalOverlay && !refs.modsTypeModalOverlay.hidden) {
                 refs.modsTypeModalOverlay.hidden = true;
             }
+
+            if (refs.modManagerTypeModalOverlay && !refs.modManagerTypeModalOverlay.hidden) {
+                refs.modManagerTypeModalOverlay.hidden = true;
+            }
+
+            closeLauncherSelects();
+        }
+    });
+
+    document.addEventListener('click', (event) => {
+        if (!event.target.closest('.launcher-select-shell')) {
+            closeLauncherSelects();
         }
     });
 
@@ -1303,6 +1422,8 @@ function closeSearch() {
         renderInstalledMods();
     } else if (state.activeView === 'builds') {
         renderBuilds();
+    } else if (state.activeView === 'settings' || state.activeView === 'news') {
+        applyLocalSearch(state.activeView, '');
     }
 }
 
@@ -1377,6 +1498,129 @@ class CustomList {
         this.selectedIndex = Math.max(0, Math.min(this.selectedIndex, items.length - 1));
         this.render();
     }
+}
+
+function closeLauncherSelects(exceptSelect = null) {
+    document.querySelectorAll('.launcher-select-shell.is-open').forEach((shell) => {
+        const ownerId = shell.getAttribute('data-select-id');
+        if (exceptSelect && ownerId === exceptSelect.id) {
+            return;
+        }
+
+        shell.classList.remove('is-open');
+        const trigger = shell.querySelector('.launcher-select-trigger');
+        if (trigger) {
+            trigger.setAttribute('aria-expanded', 'false');
+        }
+    });
+}
+
+function setupLauncherSelect(select) {
+    if (!select) {
+        return;
+    }
+
+    if (!select.id) {
+        select.id = `launcher-select-${Math.random().toString(36).slice(2, 10)}`;
+    }
+
+    select.classList.add('launcher-select-native');
+    select.hidden = true;
+    const field = select.closest('.mods-filter-field') || select.parentElement;
+    if (!field) {
+        return;
+    }
+    field.classList.add('has-custom-select');
+
+    let shell = field.querySelector(`.launcher-select-shell[data-select-id="${select.id}"]`);
+    if (!shell) {
+        shell = document.createElement('div');
+        shell.className = 'launcher-select-shell';
+        shell.setAttribute('data-select-id', select.id);
+        shell.innerHTML = `
+            <button class="launcher-select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+                <span class="launcher-select-trigger-label"></span>
+                <span class="launcher-select-trigger-icon">⌄</span>
+            </button>
+            <div class="launcher-select-panel" hidden>
+                <div class="launcher-select-list"></div>
+            </div>
+        `;
+        field.appendChild(shell);
+
+        const trigger = shell.querySelector('.launcher-select-trigger');
+        const panel = shell.querySelector('.launcher-select-panel');
+        field.addEventListener('click', (event) => {
+            if (event.target.closest('.launcher-select-panel') || event.target.closest('.custom-list-item')) {
+                return;
+            }
+            if (!event.target.closest('.launcher-select-trigger')) {
+                trigger?.click();
+            }
+        });
+        trigger?.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const willOpen = !shell.classList.contains('is-open');
+            closeLauncherSelects(willOpen ? select : null);
+            shell.classList.toggle('is-open', willOpen);
+            trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+            if (panel) {
+                panel.hidden = !willOpen;
+            }
+        });
+    }
+
+    const triggerLabel = shell.querySelector('.launcher-select-trigger-label');
+    const panel = shell.querySelector('.launcher-select-panel');
+    const listNode = shell.querySelector('.launcher-select-list');
+    const selectedOption = select.options[select.selectedIndex];
+    if (triggerLabel) {
+        triggerLabel.textContent = selectedOption?.textContent || '';
+    }
+    if (panel) {
+        panel.hidden = !shell.classList.contains('is-open');
+    }
+    shell.style.width = '100%';
+
+    const items = Array.from(select.options).map((option) => ({
+        label: option.textContent || option.value,
+        hint: '',
+        disabled: option.disabled,
+        value: option.value
+    }));
+
+    new CustomList(listNode, {
+        items,
+        selectedIndex: Math.max(0, Array.from(select.options).findIndex((option) => option.selected)),
+        onSelect: (item) => {
+            select.value = item.value;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            if (triggerLabel) {
+                triggerLabel.textContent = item.label;
+            }
+            shell.classList.remove('is-open');
+            const trigger = shell.querySelector('.launcher-select-trigger');
+            trigger?.setAttribute('aria-expanded', 'false');
+            if (panel) {
+                panel.hidden = true;
+            }
+        }
+    });
+}
+
+function getContentTypeLabel(type, fallback = 'mods') {
+    const normalizedType = String(type || fallback);
+    if (normalizedType === 'all') {
+        return t('mods_type_all');
+    }
+    return t(`mods_type_${normalizedType}`);
+}
+
+function syncTypeGridSelection(grid, attributeName, activeValue) {
+    grid?.querySelectorAll(`[${attributeName}]`).forEach((button) => {
+        button.classList.toggle('is-active', button.getAttribute(attributeName) === activeValue);
+    });
 }
 
 function getDefaultAccounts() {
@@ -1571,10 +1815,12 @@ function switchView(view) {
 
     updateNavIndicator();
     updateToolbarTitle();
+    updateManagerSelectionUi();
+    syncDiscordPresence();
 
     if (view === 'mods') {
         const activeBuild = getActiveBuild();
-        const cached = activeBuild ? getCachedModsForBuild(activeBuild.id) : null;
+        const cached = activeBuild ? getCachedModsForBuild(`${activeBuild.id}_${state.modsType || 'mods'}`) : null;
 
         if (cached && cached.query === state.modsQuery && cached.page === state.modsCurrentPage && Array.isArray(cached.results) && cached.results.length) {
             state.modsResults = cached.results;
@@ -1709,6 +1955,7 @@ function renderModFilters() {
         .join('');
 
     refs.modsFilterSelect.value = filters.some((item) => item.value === state.modsCategory) ? state.modsCategory : 'all';
+    setupLauncherSelect(refs.modsFilterSelect);
 }
 
 function renderPlayFilters() {
@@ -1727,6 +1974,63 @@ function renderPlayFilters() {
 
     refs.playFilterVersion.value = versions.includes(state.playFilterVersion) ? state.playFilterVersion : 'all';
     refs.playFilterLoader.value = loaders.includes(state.playFilterLoader) ? state.playFilterLoader : 'all';
+}
+
+function renderManagerFilters() {
+    if (!['all', ...INSTALLABLE_CONTENT_TYPES].includes(state.managerContentType)) {
+        state.managerContentType = 'all';
+    }
+
+    if (refs.modManagerTypeLabel) {
+        refs.modManagerTypeLabel.textContent = getContentTypeLabel(state.managerContentType, 'all');
+    }
+
+    syncTypeGridSelection(refs.modManagerTypeGrid, 'data-manager-type', state.managerContentType);
+    updateManagerSelectionUi();
+}
+
+function updateManagerSelectionUi() {
+    const filteredItems = getManagerFilteredMods();
+    syncInstalledSelection(filteredItems);
+    const selectedCount = getSelectedInstalledEntries(filteredItems).length;
+    const selectedItems = getSelectedInstalledEntries(filteredItems);
+    const togglableSelectedItems = selectedItems.filter((item) => canToggleInstalledEntry(item));
+    const enableTargets = togglableSelectedItems.filter((item) => !item.enabled);
+    const disableTargets = togglableSelectedItems.filter((item) => item.enabled);
+    const statusMessage = selectedCount > 0
+        ? `${state.modManagerBaseStatus || ''} • ${t('mod_manager_selected_count').replace('{count}', String(selectedCount))}`.replace(/^ • /, '')
+        : state.modManagerBaseStatus || '';
+
+    if (refs.toolbarSelection) {
+        refs.toolbarSelection.hidden = !(state.activeView === 'mod-manager' && selectedCount > 0);
+    }
+
+    if (refs.toolbarSelectionText) {
+        refs.toolbarSelectionText.textContent = t('mod_manager_selected_count').replace('{count}', String(selectedCount));
+    }
+
+    updateToolbarTitle();
+
+    if (refs.toolbarEnableSelectedBtn) {
+        refs.toolbarEnableSelectedBtn.setAttribute('aria-label', t('mod_manager_enable_selected'));
+        refs.toolbarEnableSelectedBtn.disabled = enableTargets.length === 0;
+    }
+
+    if (refs.toolbarDisableSelectedBtn) {
+        refs.toolbarDisableSelectedBtn.setAttribute('aria-label', t('mod_manager_disable_selected'));
+        refs.toolbarDisableSelectedBtn.disabled = disableTargets.length === 0;
+    }
+
+    if (refs.toolbarDeleteSelectedBtn) {
+        refs.toolbarDeleteSelectedBtn.setAttribute('aria-label', t('mod_manager_delete_selected'));
+        refs.toolbarDeleteSelectedBtn.disabled = selectedCount === 0;
+    }
+
+    if (statusMessage) {
+        if (refs.modManagerStatus) {
+            refs.modManagerStatus.textContent = statusMessage;
+        }
+    }
 }
 
 function translateCategory(value) {
@@ -1750,6 +2054,7 @@ function applyLanguage() {
     document.getElementById('mods-panel-label').textContent = t('mods_label');
     refs.modsTypeLabel.textContent = t(`mods_type_${state.modsType}`);
     document.getElementById('mod-manager-panel-label').textContent = t('mod_manager_label');
+    refs.modManagerTypeLabel.textContent = getContentTypeLabel(state.managerContentType, 'all');
     document.getElementById('builds-panel-label').textContent = t('builds_label');
     document.getElementById('news-panel-label').textContent = t('news_label');
     document.getElementById('settings-panel-label').textContent = t('settings_label');
@@ -1765,6 +2070,28 @@ function applyLanguage() {
     refs.modsFolderBtn.setAttribute('aria-label', t('mods_folder_aria'));
     document.getElementById('mods-search-label').textContent = t('mods_search_label');
     document.getElementById('mod-manager-search-label').textContent = t('mod_manager_current_build');
+    document.getElementById('mod-manager-type-label').textContent = t('mod_manager_type_label');
+    document.getElementById('mods-type-modal-title').textContent = t('mods_type_modal_title');
+    document.getElementById('mod-manager-type-modal-title').textContent = t('mods_type_modal_title');
+
+    refs.modsTypeGrid?.querySelectorAll('[data-type]').forEach((button) => {
+        const type = button.getAttribute('data-type');
+        const label = button.querySelector('.mods-type-name');
+        if (type && label) {
+            label.textContent = getContentTypeLabel(type);
+        }
+    });
+
+    refs.modManagerTypeGrid?.querySelectorAll('[data-manager-type]').forEach((button) => {
+        const type = button.getAttribute('data-manager-type');
+        const label = button.querySelector('.mods-type-name');
+        if (type && label) {
+            label.textContent = getContentTypeLabel(type, 'all');
+        }
+    });
+
+    syncTypeGridSelection(refs.modsTypeGrid, 'data-type', state.modsType);
+    syncTypeGridSelection(refs.modManagerTypeGrid, 'data-manager-type', state.managerContentType);
 
     document.getElementById('build-modal-label').textContent = t('build_modal_label');
     document.getElementById('play-filter-version-label').textContent = t('play_filter_version_label');
@@ -1819,7 +2146,6 @@ function applyLanguage() {
     refs.dependencyModalCancel.textContent = t('dependency_modal_cancel');
     refs.dependencyModalConfirm.textContent = t('dependency_modal_confirm');
 
-    refs.playSelectBtn.textContent = t('play_select');
     refs.playLaunchBtn.textContent = t('play_launch');
     refs.searchToggle.setAttribute('aria-label', t('toolbar_search_open'));
     refs.searchClose.setAttribute('aria-label', t('toolbar_search_close'));
@@ -1835,6 +2161,7 @@ function applyLanguage() {
     updatePlayPanel();
     updateToolbarTitle();
     renderModFilters();
+    renderManagerFilters();
     renderPlayFilters();
     renderPlayPickerList();
     renderLoaderShowcase();
@@ -1873,6 +2200,19 @@ function getActiveBuild() {
     };
 }
 
+function syncDiscordPresence() {
+    if (!window.launcherPresence?.update) {
+        return;
+    }
+
+    void window.launcherPresence.update({
+        activeView: state.activeView,
+        build: getActiveBuild(),
+        launchTitle: state.launchStatus.title || '',
+        launchDetail: state.launchStatus.detail || ''
+    }).catch(() => {});
+}
+
 function getBuildDisplayName(build) {
     if (!build) return t('default_build_name');
     // Если есть явное имя — показываем его
@@ -1885,7 +2225,10 @@ function getBuildDisplayName(build) {
 
 function updateToolbarTitle() {
     const activeBuild = getActiveBuild();
-    const currentTab = t(`nav_${String(state.activeView || '').replace(/-/g, '_')}`);
+    const selectedCount = state.activeView === 'mod-manager' ? state.selectedInstalledItems.length : 0;
+    const currentTab = selectedCount > 0
+        ? t('mod_manager_selected_count').replace('{count}', String(selectedCount))
+        : t(`nav_${String(state.activeView || '').replace(/-/g, '_')}`);
     const loaderStr = formatLoader(activeBuild.loader);
     const versionStr = activeBuild.minecraftVersion || DEFAULT_GAME_VERSION;
     const buildStr = getBuildDisplayName(activeBuild);
@@ -2097,9 +2440,11 @@ function updateModsStatus(message) {
 }
 
 function updateInstalledModsStatus(message) {
+    state.modManagerBaseStatus = message;
     if (refs.modManagerStatus) {
         refs.modManagerStatus.textContent = message;
     }
+    updateManagerSelectionUi();
 }
 
 function renderPagination(container, { currentPage, totalPages, onSelect }) {
@@ -2186,9 +2531,22 @@ function renderPagination(container, { currentPage, totalPages, onSelect }) {
 function getInstalledModMatch(mod) {
     const projectId = String(mod.id || '');
     const normalizedTitle = normalizeKey(mod.title || '');
-    return state.installedMods.find((installed) => {
+    return getInstalledModsByType('mods').find((installed) => {
         return (installed.projectId && String(installed.projectId) === projectId)
             || (installed.normalizedName && installed.normalizedName === normalizedTitle);
+    }) || null;
+}
+
+function getInstalledContentMatch(entry, contentType = 'mods') {
+    const normalizedTitle = normalizeKey(entry?.title || entry?.filename || '');
+    const installedItems = getInstalledModsByType(contentType);
+
+    if (contentType === 'mods') {
+        return getInstalledModMatch(entry);
+    }
+
+    return installedItems.find((installed) => {
+        return normalizeKey(installed.title || installed.filename || '') === normalizedTitle;
     }) || null;
 }
 
@@ -2196,7 +2554,44 @@ function normalizeKey(value) {
     return String(value || '')
         .toLowerCase()
         .replace(/\.jar(?:\.disabled)?$/i, '')
-        .replace(/[^a-z0-9]+/g, '');
+        .replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+function getInstalledModsByType(contentType = 'mods') {
+    return state.installedMods.filter((item) => (item.contentType || 'mods') === contentType);
+}
+
+function canToggleInstalledEntry(entry) {
+    return !NON_TOGGLABLE_CONTENT_TYPES.includes(String(entry?.contentType || 'mods'));
+}
+
+function getManagerFilteredMods() {
+    const normalizedQuery = normalizeKey(state.modsQuery || '');
+
+    return state.installedMods.filter((mod) => {
+        const contentType = mod.contentType || 'mods';
+        const typeMatches = state.managerContentType === 'all' || contentType === state.managerContentType;
+        const queryMatches = !normalizedQuery || [
+            mod.title,
+            mod.filename,
+            mod.author,
+            mod.projectId,
+            contentType
+        ].map((value) => normalizeKey(value || '')).join(' ').includes(normalizedQuery);
+
+        return typeMatches && queryMatches;
+    });
+}
+
+function syncInstalledSelection(filteredItems = null) {
+    const allowedIds = new Set((filteredItems || getManagerFilteredMods()).map((item) => item.id));
+    state.selectedInstalledItems = state.selectedInstalledItems.filter((itemId) => allowedIds.has(itemId));
+}
+
+function getSelectedInstalledEntries(filteredItems = null) {
+    const source = filteredItems || getManagerFilteredMods();
+    const selectedIds = new Set(state.selectedInstalledItems);
+    return source.filter((item) => selectedIds.has(item.id));
 }
 
 function getInstalledModCachedIcon(mod) {
@@ -2277,10 +2672,12 @@ async function refreshInstalledMods() {
         updateInstalledModsStatus(`${getBuildDisplayName(activeBuild)} • ${state.installedMods.length}`);
     }
 
-const installedState = await window.launcherMods.listInstalled(
-    state.activeBuildId
-);
+    const installedState = await window.launcherMods.listInstalled({
+        buildId: state.activeBuildId,
+        contentType: 'all'
+    });
     state.installedMods = Array.isArray(installedState?.mods) ? installedState.mods : [];
+    syncInstalledSelection();
     cacheInstalledModsForBuild(activeBuild?.id, state.installedMods);
     const totalPages = Math.max(1, Math.ceil(state.installedMods.length / INSTALLED_MODS_PAGE_SIZE));
     state.installedModsCurrentPage = Math.min(state.installedModsCurrentPage, totalPages);
@@ -2288,20 +2685,28 @@ const installedState = await window.launcherMods.listInstalled(
     updateInstalledModsStatus(`${getBuildDisplayName(activeBuild)} • ${state.installedMods.length}`);
 }
 
-async function toggleInstalledMod(filename) {
-    const installedState = await window.launcherMods.listInstalled(
-    state.activeBuildId
-);
+async function toggleInstalledMod(filename, contentType = 'mods') {
+    const installedState = await window.launcherMods.toggleInstalled({
+        filename,
+        buildId: state.activeBuildId,
+        contentType
+    });
     state.installedMods = Array.isArray(installedState?.mods) ? installedState.mods : [];
+    syncInstalledSelection();
     renderInstalledMods();
     renderModsResults();
     updateInstalledModsStatus(t('mods_toggled'));
     updateModsStatus(t('mods_toggled'));
 }
 
-async function deleteInstalledMod(filename) {
-    const installedState = await window.launcherMods.deleteInstalled({ filename });
+async function deleteInstalledMod(filename, contentType = 'mods') {
+    const installedState = await window.launcherMods.deleteInstalled({
+        filename,
+        buildId: state.activeBuildId,
+        contentType
+    });
     state.installedMods = Array.isArray(installedState?.mods) ? installedState.mods : [];
+    syncInstalledSelection();
     renderInstalledMods();
     renderModsResults();
     updateInstalledModsStatus(t('mods_deleted'));
@@ -2370,8 +2775,7 @@ function renderModsResults() {
 
     refs.modsResults.innerHTML = state.modsResults.map((mod) => {
         const contentType = state.modsType || 'mods';
-        const isMods = contentType === 'mods';
-        const installedMatch = isMods ? getInstalledModMatch(mod) : null;
+        const installedMatch = getInstalledContentMatch(mod, contentType);
         const cover = mod.iconUrl
             ? `<img class="mods-result-cover" src="${escapeHtml(mod.iconUrl)}" alt="${escapeHtml(mod.title)}">`
             : `<div class="mods-result-cover mods-result-cover--fallback">${escapeHtml((mod.title || '?').charAt(0).toUpperCase())}</div>`;
@@ -2383,8 +2787,8 @@ function renderModsResults() {
         const installButtonClass = installedMatch ? 'mods-install-btn mods-install-btn--installed icon-only' : 'mods-install-btn';
         const installButtonAria = installedMatch ? `aria-label="${escapeHtml(t('mods_installed'))}"` : '';
         const quickActions = installedMatch ? `
-            <button class="mods-install-btn" type="button" data-toggle-installed="${escapeHtml(installedMatch.filename)}">${escapeHtml(installedMatch.enabled ? t('mods_disable') : t('mods_enable'))}</button>
-            <button class="mods-install-btn is-danger icon-only" type="button" data-delete-installed="${escapeHtml(installedMatch.filename)}" aria-label="${escapeHtml(t('mods_delete'))}"><img src="assets/icons/delete_24dp_E3E3E3_FILL1_wght400_GRAD0_opsz24.png" alt=""></button>
+            <button class="mods-install-btn" type="button" data-toggle-installed="${escapeHtml(installedMatch.filename)}" data-toggle-content-type="${escapeHtml(installedMatch.contentType || contentType)}">${escapeHtml(installedMatch.enabled ? t('mods_disable') : t('mods_enable'))}</button>
+            <button class="mods-install-btn is-danger icon-only" type="button" data-delete-installed="${escapeHtml(installedMatch.filename)}" data-delete-content-type="${escapeHtml(installedMatch.contentType || contentType)}" aria-label="${escapeHtml(t('mods_delete'))}"><img src="assets/icons/delete_24dp_E3E3E3_FILL1_wght400_GRAD0_opsz24.png" alt=""></button>
         ` : '';
 
         return `
@@ -2439,6 +2843,7 @@ function renderModsResults() {
                 if (contentType === 'mods') {
                     state.installedMods = Array.isArray(result?.installedMods?.mods) ? result.installedMods.mods : state.installedMods;
                 }
+                await refreshInstalledMods();
 
                 button.textContent = t('mods_installed');
                 button.classList.add('mods-result-badge--success');
@@ -2470,7 +2875,10 @@ function renderModsResults() {
         button.addEventListener('click', async () => {
             button.disabled = true;
             try {
-                await toggleInstalledMod(button.getAttribute('data-toggle-installed'));
+                await toggleInstalledMod(
+                    button.getAttribute('data-toggle-installed'),
+                    button.getAttribute('data-toggle-content-type') || 'mods'
+                );
             } catch (error) {
                 updateModsStatus(`${t('error_prefix')}: ${error.message}`);
             } finally {
@@ -2483,7 +2891,10 @@ function renderModsResults() {
         button.addEventListener('click', async () => {
             button.disabled = true;
             try {
-                await deleteInstalledMod(button.getAttribute('data-delete-installed'));
+                await deleteInstalledMod(
+                    button.getAttribute('data-delete-installed'),
+                    button.getAttribute('data-delete-content-type') || 'mods'
+                );
             } catch (error) {
                 updateModsStatus(`${t('error_prefix')}: ${error.message}`);
             } finally {
@@ -2508,19 +2919,8 @@ function renderInstalledMods() {
         return;
     }
 
-    const normalizedQuery = normalizeKey(state.modsQuery || '');
-    const filteredInstalledMods = !normalizedQuery
-        ? state.installedMods
-        : state.installedMods.filter((mod) => {
-            const haystack = [
-                mod.title,
-                mod.filename,
-                mod.author,
-                mod.projectId
-            ].map((value) => normalizeKey(value || '')).join(' ');
-
-            return haystack.includes(normalizedQuery);
-        });
+    const filteredInstalledMods = getManagerFilteredMods();
+    syncInstalledSelection(filteredInstalledMods);
 
     if (!filteredInstalledMods.length) {
         refs.installedModsResults.innerHTML = `
@@ -2533,27 +2933,37 @@ function renderInstalledMods() {
         updateInstalledModsStatus(state.modsQuery
             ? `${t('mods_search_empty')} • ${getBuildDisplayName(getActiveBuild())}`
             : `${getBuildDisplayName(getActiveBuild())} • 0`);
+        updateManagerSelectionUi();
         return;
     }
 
     const totalPages = Math.max(1, Math.ceil(filteredInstalledMods.length / INSTALLED_MODS_PAGE_SIZE));
     const safePage = Math.min(state.installedModsCurrentPage, totalPages);
     const pageItems = filteredInstalledMods.slice((safePage - 1) * INSTALLED_MODS_PAGE_SIZE, safePage * INSTALLED_MODS_PAGE_SIZE);
+    const selectedIds = new Set(state.selectedInstalledItems);
 
     refs.installedModsResults.innerHTML = pageItems.map((mod) => `
-        <article class="mods-result-card">
-            ${getInstalledModCoverMarkup(mod)}
+        <article class="mods-result-card ${selectedIds.has(mod.id) ? 'is-selected' : ''}">
+            <button class="manager-cover-toggle" type="button" data-manager-select-cover="${escapeHtml(mod.id)}" aria-pressed="${selectedIds.has(mod.id) ? 'true' : 'false'}" aria-label="${escapeHtml(selectedIds.has(mod.id) ? 'Снять выбор' : 'Выбрать')}">
+                ${getInstalledModCoverMarkup(mod)}
+                <span class="manager-cover-check" aria-hidden="true">
+                    <img src="assets/icons/check_24dp_E3E3E3_FILL1_wght400_GRAD0_opsz24.png" alt="">
+                </span>
+            </button>
             <div class="mods-result-body">
                 <div class="mods-result-head">
                     <div>
                         <div class="mods-result-title-row">
                             <h3 class="mods-result-title">${escapeHtml(mod.title || mod.filename)}</h3>
                         </div>
-                        <div class="mods-result-meta">${escapeHtml(mod.filename)}</div>
+                        <div class="mods-result-meta">${escapeHtml(t(`mods_type_${mod.contentType || 'mods'}`))} • ${escapeHtml(mod.filename)}</div>
                     </div>
                     <div class="mods-result-actions">
-                        <button class="mods-install-btn" type="button" data-manager-toggle="${escapeHtml(mod.filename)}">${escapeHtml(mod.enabled ? t('mods_disable') : t('mods_enable'))}</button>
-                        <button class="mods-install-btn is-danger icon-only" type="button" data-manager-delete="${escapeHtml(mod.filename)}" aria-label="${escapeHtml(t('mods_delete'))}"><img src="assets/icons/delete_24dp_E3E3E3_FILL1_wght400_GRAD0_opsz24.png" alt=""></button>                    </div>
+                        ${canToggleInstalledEntry(mod)
+                            ? `<button class="mods-install-btn" type="button" data-manager-toggle="${escapeHtml(mod.filename)}" data-manager-content-type="${escapeHtml(mod.contentType || 'mods')}">${escapeHtml(mod.enabled ? t('mods_disable') : t('mods_enable'))}</button>`
+                            : ''}
+                        <button class="mods-install-btn is-danger icon-only" type="button" data-manager-delete="${escapeHtml(mod.filename)}" data-manager-content-type="${escapeHtml(mod.contentType || 'mods')}" aria-label="${escapeHtml(t('mods_delete'))}"><img src="assets/icons/delete_24dp_E3E3E3_FILL1_wght400_GRAD0_opsz24.png" alt=""></button>
+                    </div>
                 </div>
                 <div class="mods-result-footer">
                     <div class="mods-result-tags">
@@ -2570,16 +2980,38 @@ function renderInstalledMods() {
         refs.installedModsResults.addEventListener('click', async (event) => {
             const toggleBtn = event.target.closest('[data-manager-toggle]');
             const deleteBtn = event.target.closest('[data-manager-delete]');
+            const coverToggle = event.target.closest('[data-manager-select-cover]');
+
+            if (coverToggle) {
+                const itemId = coverToggle.getAttribute('data-manager-select-cover');
+                if (state.selectedInstalledItems.includes(itemId)) {
+                    state.selectedInstalledItems = state.selectedInstalledItems.filter((id) => id !== itemId);
+                } else {
+                    state.selectedInstalledItems.push(itemId);
+                }
+                renderInstalledMods();
+                return;
+            }
 
             if (toggleBtn) {
                 try {
-                    await toggleInstalledMod(toggleBtn.getAttribute('data-manager-toggle'));
+                    await toggleInstalledMod(
+                        toggleBtn.getAttribute('data-manager-toggle'),
+                        toggleBtn.getAttribute('data-manager-content-type') || 'mods'
+                    );
                 } catch (error) {
                     updateInstalledModsStatus(`${t('error_prefix')}: ${error.message}`);
                 }
             } else if (deleteBtn) {
                 try {
-                    await deleteInstalledMod(deleteBtn.getAttribute('data-manager-delete'));
+                    const confirmed = window.confirm(`Удалить "${deleteBtn.getAttribute('data-manager-delete')}"?`);
+                    if (!confirmed) {
+                        return;
+                    }
+                    await deleteInstalledMod(
+                        deleteBtn.getAttribute('data-manager-delete'),
+                        deleteBtn.getAttribute('data-manager-content-type') || 'mods'
+                    );
                 } catch (error) {
                     updateInstalledModsStatus(`${t('error_prefix')}: ${error.message}`);
                 }
@@ -2600,10 +3032,11 @@ function renderInstalledMods() {
     updateInstalledModsStatus(state.modsQuery
         ? `${filteredInstalledMods.length} • ${getBuildDisplayName(getActiveBuild())}`
         : `${getBuildDisplayName(getActiveBuild())} • ${filteredInstalledMods.length}`);
+    updateManagerSelectionUi();
 
     // Defer icon preloading to next frame to avoid blocking UI
     window.requestAnimationFrame(() => {
-        void preloadInstalledModIcons(pageItems);
+        void preloadInstalledModIcons(pageItems.filter((item) => (item.contentType || 'mods') === 'mods'));
     });
 }
 
@@ -2612,12 +3045,30 @@ function renderBuilds() {
         return;
     }
 
-    const builds = state.builds || [];
+    const normalizedQuery = normalizeKey(state.modsQuery || '');
+    const builds = (state.builds || []).filter((build) => {
+        if (!normalizedQuery) {
+            return true;
+        }
+
+        const haystack = [
+            getBuildDisplayName(build),
+            build.id,
+            build.name,
+            build.loader,
+            formatLoader(build.loader),
+            build.minecraftVersion,
+            build.path
+        ].map((value) => normalizeKey(value || '')).join(' ');
+
+        return haystack.includes(normalizedQuery);
+    });
+
     if (!builds.length) {
         refs.buildsList.innerHTML = `
             <div class="builds-empty-state">
-                <div class="mods-empty-title">${escapeHtml(t('builds_empty_title'))}</div>
-                <div class="mods-empty-copy">${escapeHtml(t('builds_empty_copy'))}</div>
+                <div class="mods-empty-title">${escapeHtml(state.modsQuery ? t('mods_no_results_title') : t('builds_empty_title'))}</div>
+                <div class="mods-empty-copy">${escapeHtml(state.modsQuery ? t('mods_no_results_copy') : t('builds_empty_copy'))}</div>
             </div>
         `;
         return;
@@ -3032,10 +3483,11 @@ async function refreshBuildsState() {
     updateToolbarTitle();
     updatePlayPanel();
     updateLaunchUi();
+    syncDiscordPresence();
 
     if (state.activeView === 'mods') {
         const activeBuild = getActiveBuild();
-        const cached = activeBuild ? getCachedModsForBuild(activeBuild.id) : null;
+        const cached = activeBuild ? getCachedModsForBuild(`${activeBuild.id}_${state.modsType || 'mods'}`) : null;
 
         if (cached && cached.query === state.modsQuery && cached.page === state.modsCurrentPage && Array.isArray(cached.results) && cached.results.length) {
             state.modsResults = cached.results;

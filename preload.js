@@ -47,14 +47,14 @@ contextBridge.exposeInMainWorld('launcherMods', {
     getState() {
         return ipcRenderer.invoke('mods:state');
     },
-    openFolder() {
-        return ipcRenderer.invoke('mods:open-folder');
+    openFolder(payload) {
+        return ipcRenderer.invoke('mods:open-folder', payload);
     },
-    getFilters() {
-        return ipcRenderer.invoke('mods:filters');
+    getFilters(payload) {
+        return ipcRenderer.invoke('mods:filters', payload);
     },
-    listInstalled(buildId) {
-        return ipcRenderer.invoke('mods:list-installed', buildId);
+    listInstalled(payload) {
+        return ipcRenderer.invoke('mods:list-installed', payload);
     },
     toggleInstalled(payload) {
         return ipcRenderer.invoke('mods:toggle-installed', payload);
@@ -138,5 +138,11 @@ contextBridge.exposeInMainWorld('launcherUpdates', {
     },
     apply(payload) {
         return ipcRenderer.invoke('launcher-updates:apply', payload);
+    }
+});
+
+contextBridge.exposeInMainWorld('launcherPresence', {
+    update(payload) {
+        return ipcRenderer.invoke('presence:update', payload);
     }
 });
